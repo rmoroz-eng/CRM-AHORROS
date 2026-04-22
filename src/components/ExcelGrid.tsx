@@ -7,7 +7,7 @@ import {
   Plus, Trash2, Settings, Download, Upload, Save,
   Search, AlertCircle, CheckCircle2, ChevronRight,
   MoreVertical, Type, Hash, Calendar, DollarSign,
-  Database, FileText
+  Database, FileText, Pencil, X, Check
 } from 'lucide-react';
 import { cn, formatCurrency } from '@/src/lib/utils';
 
@@ -28,6 +28,9 @@ interface ExcelGridProps {
 
 export const ExcelGrid: React.FC<ExcelGridProps> = ({ rows, onRowsChange, columns, onColumnsChange, onPersist }) => {
   const [editingCell, setEditingCell] = useState<{ rowIdx: number, colId: string } | null>(null);
+  const [editingColId, setEditingColId] = useState<string | null>(null);
+  const [deleteColIdToConfirm, setDeleteColIdToConfirm] = useState<string | null>(null);
+  const [deleteRowIdxToConfirm, setDeleteRowIdxToConfirm] = useState<number | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -152,6 +155,7 @@ export const ExcelGrid: React.FC<ExcelGridProps> = ({ rows, onRowsChange, column
     const newRows = [...rows];
     newRows.splice(idx, 1);
     onRowsChange(newRows);
+    setDeleteRowIdxToConfirm(null);
   };
 
   const updateCell = (rowIdx: number, colId: string, value: any) => {
@@ -198,6 +202,24 @@ export const ExcelGrid: React.FC<ExcelGridProps> = ({ rows, onRowsChange, column
     onColumnsChange([...columns, { id, name: newColName, type: newColType }]);
     setNewColName('');
     setShowAddColumn(false);
+  };
+
+  const deleteColumn = (id: string) => {
+    if (columns.length <= 1) {
+      alert("Al menos debe quedar una columna.");
+      setDeleteColIdToConfirm(null);
+      return;
+    }
+    const newCols = columns.filter(c => c.id !== id);
+    onColumnsChange(newCols);
+    
+    // Optional: Clean data in rows
+    const cleanedRows = rows.map(row => {
+      const { [id]: _, ...rest } = row;
+      return rest;
+    });
+    onRowsChange(cleanedRows);
+    setDeleteColIdToConfirm(null);
   };
 
   const validateCell = (rowIdx: number, colId: string): boolean => {
@@ -338,15 +360,83 @@ export const ExcelGrid: React.FC<ExcelGridProps> = ({ rows, onRowsChange, column
               <tr className="bg-white border-b border-brand-border">
                 <th className="px-3 py-2 text-center border-r border-brand-border w-10 sticky left-0 bg-white shadow-[1px_0_0_0_#E8E8E8] z-20">#</th>
                 {columns.map(col => (
-                  <th key={col.id} className="px-4 py-2 text-left font-bold text-brand-gray uppercase tracking-widest border-r border-brand-border min-w-[120px]">
+                  <th key={col.id} className="px-4 py-2 text-left font-bold text-brand-gray uppercase tracking-widest border-r border-brand-border min-w-[120px] group/header relative">
                     <div className="flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        {col.type === 'text' && <Type className="w-3 h-3 opacity-50" />}
-                        {col.type === 'number' && <Hash className="w-3 h-3 opacity-50" />}
-                        {col.type === 'currency' && <DollarSign className="w-3 h-3 opacity-50" />}
-                        {col.type === 'date' && <Calendar className="w-3 h-3 opacity-50" />}
-                        {col.name}
-                      </span>
+                      {editingColId === col.id ? (
+                        <input 
+                          autoFocus
+                          type="text"
+                          defaultValue={col.name}
+                          onBlur={(e) => {
+                            const newName = e.target.value.trim();
+                            if (newName && newName !== col.name) {
+                              onColumnsChange(columns.map(c => c.id === col.id ? { ...c, name: newName } : c));
+                            }
+                            setEditingColId(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                const newName = (e.target as HTMLInputElement).value.trim();
+                                if (newName && newName !== col.name) {
+                                    onColumnsChange(columns.map(c => c.id === col.id ? { ...c, name: newName } : c));
+                                }
+                                setEditingColId(null);
+                            }
+                            if (e.key === 'Escape') setEditingColId(null);
+                          }}
+                          className="w-full bg-white border border-brand-blue outline-none px-1 text-[10px]"
+                        />
+                      ) : (
+                        <span 
+                          onDoubleClick={() => setEditingColId(col.id)}
+                          title="Doble clic para renombrar columna"
+                          className="flex items-center gap-1.5 cursor-text"
+                        >
+                          {col.type === 'text' && <Type className="w-3 h-3 opacity-50" />}
+                          {col.type === 'number' && <Hash className="w-3 h-3 opacity-50" />}
+                          {col.type === 'currency' && <DollarSign className="w-3 h-3 opacity-50" />}
+                          {col.type === 'date' && <Calendar className="w-3 h-3 opacity-50" />}
+                          {col.name}
+                        </span>
+                      )}
+                      
+                      <div className="flex items-center gap-1 opacity-0 group-hover/header:opacity-100 transition-opacity">
+                        {deleteColIdToConfirm === col.id ? (
+                          <div className="flex items-center bg-rose-500 rounded-sm">
+                            <button 
+                              onClick={() => deleteColumn(col.id)}
+                              className="p-1 hover:bg-white/20 text-white"
+                              title="Confirmar eliminación"
+                            >
+                              <Check className="w-2.5 h-2.5" />
+                            </button>
+                            <button 
+                              onClick={() => setDeleteColIdToConfirm(null)}
+                              className="p-1 hover:bg-white/20 text-white border-l border-white/20"
+                              title="Cancelar"
+                            >
+                              <X className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <button 
+                              onClick={() => setEditingColId(col.id)}
+                              className="p-1 hover:text-brand-blue"
+                              title="Renombrar columna"
+                            >
+                              <Pencil className="w-2.5 h-2.5" />
+                            </button>
+                            <button 
+                              onClick={() => setDeleteColIdToConfirm(col.id)}
+                              className="p-1 hover:text-rose-500"
+                              title="Eliminar columna"
+                            >
+                              <Trash2 className="w-2.5 h-2.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </th>
                 ))}
@@ -408,12 +498,29 @@ export const ExcelGrid: React.FC<ExcelGridProps> = ({ rows, onRowsChange, column
                          {/* Cell Hover Actions */}
                          <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
                             {col.id === 'nroSiniestro' && (
-                              <button 
-                                onClick={(e) => { e.stopPropagation(); deleteRow(rowIdx); }}
-                                className="p-1 hover:bg-rose-100 rounded text-rose-500"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                              </button>
+                              deleteRowIdxToConfirm === rowIdx ? (
+                                <div className="flex items-center gap-0.5 bg-rose-500 rounded-sm">
+                                  <button 
+                                    onClick={(e) => { e.stopPropagation(); deleteRow(rowIdx); }} 
+                                    className="p-1 hover:bg-white/20 text-white"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                  </button>
+                                  <button 
+                                    onClick={(e) => { e.stopPropagation(); setDeleteRowIdxToConfirm(null); }} 
+                                    className="p-1 hover:bg-white/20 text-white border-l border-white/20"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); setDeleteRowIdxToConfirm(rowIdx); }}
+                                  className="p-1 hover:bg-rose-100 rounded text-rose-500"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              )
                             )}
                          </div>
                        </td>

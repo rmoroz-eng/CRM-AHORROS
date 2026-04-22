@@ -44,7 +44,7 @@ export const GLOBAL_DATA: GlobalEntry[] = [
 export const PROVINCIAS = ['Buenos Aires', 'CABA', 'Santa Fe', 'Córdoba', 'Mendoza', 'Tucumán', 'Entre Ríos', 'Salta'];
 export const SECCIONES = ['1', '21', '2', '3', '4'];
 export const ANALYSTS = ['Juan Perez', 'Maria Garcia', 'Carlos Lopez', 'Ana Martinez'];
-export const INVESTIGATORS = ['Estudio Rivas', 'Control Riesgo', 'Investit S.A.', 'M. Rodriguez'];
+export const INVESTIGATORS = ['Estudio Gabino', 'Investigaciones Riesgo Ar', 'M. Rossi & Asoc.', 'R. Sanchez Auditoría', 'Estudio Jurídico L&M'];
 
 // Generación de data acumulada sintética para el demo
 export const ACUMULADO_DATA: AccumulatedEntry[] = Array.from({ length: 150 }).map((_, i) => {

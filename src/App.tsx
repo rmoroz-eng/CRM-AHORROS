@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { useState, useMemo, useEffect } from 'react';
 import { 
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, 
@@ -11,13 +13,12 @@ import {
 import { 
   TrendingUp, Users, ShieldCheck, PieChart as PieChartIcon, 
   Filter, Search, ArrowUpRight, ArrowDownRight, 
-  FileText, Download, Clock, Database, Plus, Trash2, Save, Grid, LayoutDashboard
+  FileText, Download, Clock, Database, Plus, Trash2, Save, Grid, LayoutDashboard, Settings, Pencil, Edit2, Check, X
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ExcelGrid } from '@/src/components/ExcelGrid';
 import { 
   GLOBAL_DATA, ACUMULADO_DATA, PROVINCIAS, 
-  INVESTIGATORS,
   GlobalEntry,
   AccumulatedEntry
 } from '@/src/data/mockData';
@@ -79,61 +80,234 @@ const ChartContainer = ({ title, children, className, id }: any) => (
 export default function App() {
   // Navigation States
   const [activeTab, setActiveTab] = useState<'siniestros' | 'suscripcion' | 'carga'>('siniestros');
-  const [cargaSubView, setCargaSubView] = useState<'mensual' | 'granular'>('mensual');
+  
+  // Data Views System
+  type ViewType = 'mensual' | 'granular';
+  interface DataView {
+    id: string;
+    title: string;
+    type: ViewType;
+    dataKey: string;
+    columnsKey?: string;
+  }
 
-  // Core Data States (Initialized with mock or persisted data)
+  interface DashboardConfig {
+    id: string;
+    title: string;
+    sourceId: string;
+    visibleFields: string[];
+    widgets: string[];
+  }
+
+  const [dataViews, setDataViews] = useState<DataView[]>(() => {
+    const saved = localStorage.getItem('crm_data_views');
+    if (saved) return JSON.parse(saved);
+    return [
+      { id: 'mensual', title: 'Planificación Mensual', type: 'mensual', dataKey: 'crm_global_data' },
+      { id: 'granular', title: 'Registros Granulares', type: 'granular', dataKey: 'crm_acumulado_data', columnsKey: 'crm_audit_columns' }
+    ];
+  });
+
+  const [dashboards, setDashboards] = useState<DashboardConfig[]>(() => {
+    const saved = localStorage.getItem('crm_dashboards');
+    if (saved) return JSON.parse(saved);
+    return [
+      { 
+        id: 'default', 
+        title: 'Tablero General', 
+        sourceId: 'granular', 
+        visibleFields: ['nroSiniestro', 'provincia', 'periodo', 'resultado', 'ahorro', 'investigador'],
+        widgets: ['kpi-ahorro', 'kpi-cumplimiento', 'kpi-siniestros', 'chart-performance', 'chart-outcomes', 'chart-savings-study', 'chart-investigators']
+      }
+    ];
+  });
+
+  const [activeDashboardId, setActiveDashboardId] = useState<string>(() => dashboards[0]?.id || '');
+  const [isCreatingDashboard, setIsCreatingDashboard] = useState(false);
+  const [newDashTitle, setNewDashTitle] = useState('');
+  const [newDashSource, setNewDashSource] = useState('granular');
+  const [newDashFields, setNewDashFields] = useState<string[]>([]);
+  const [newDashWidgets, setNewDashWidgets] = useState<string[]>(['kpi-ahorro', 'kpi-cumplimiento', 'kpi-siniestros', 'chart-performance', 'chart-outcomes', 'chart-savings-study', 'chart-investigators']);
+  const [editingDashId, setEditingDashId] = useState<string | null>(null);
+  const [dashIdToConfirmDelete, setDashIdToConfirmDelete] = useState<string | null>(null);
+
+  const AVAILABLE_WIDGETS = [
+    { id: 'kpi-ahorro', name: 'KPI: Ahorro Total' },
+    { id: 'kpi-cumplimiento', name: 'KPI: Tasa Cumplimiento' },
+    { id: 'kpi-siniestros', name: 'KPI: Siniestros con Ahorro' },
+    { id: 'chart-performance', name: 'Gráfico: Proyectado vs Alcance' },
+    { id: 'chart-outcomes', name: 'Gráfico: Distribución por Resultado' },
+    { id: 'chart-savings-study', name: 'Gráfico: Ahorro por Estudio' },
+    { id: 'chart-investigators', name: 'Gráfico: Top Investigadores' },
+  ];
+
+  const [cargaSubView, setCargaSubView] = useState<string>(() => dataViews[0]?.id || '');
+  const [editingTitleKey, setEditingTitleKey] = useState<string | null>(null);
+  const [isCreatingView, setIsCreatingView] = useState(false);
+  const [newViewTitle, setNewViewTitle] = useState('');
+
+  const safeSetItem = (key: string, value: string) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch (e) {
+      console.warn('LocalStorage error:', e);
+    }
+  };
+
+  // Persistence for Views Structure
+  useEffect(() => {
+    safeSetItem('crm_data_views', JSON.stringify(dataViews));
+  }, [dataViews]);
+
+  // Dynamic Data Store for Granular Views
+  const [granularDataStore, setGranularDataStore] = useState<Record<string, any[]>>(() => {
+    const store: Record<string, any[]> = {};
+    dataViews.forEach(v => {
+      if (v.type === 'granular') {
+        const saved = localStorage.getItem(v.dataKey);
+        store[v.id] = saved ? JSON.parse(saved) : (v.id === 'granular' ? ACUMULADO_DATA : []);
+      }
+    });
+    return store;
+  });
+
+  const [columnsDataStore, setColumnsDataStore] = useState<Record<string, any[]>>(() => {
+    const store: Record<string, any[]> = {};
+    dataViews.forEach(v => {
+      if (v.type === 'granular' && v.columnsKey) {
+        const saved = localStorage.getItem(v.columnsKey);
+        store[v.id] = saved ? JSON.parse(saved) : [
+          { id: 'nroSiniestro', name: 'Nro Siniestro', type: 'text', required: true },
+          { id: 'provincia', name: 'Provincia', type: 'text' },
+          { id: 'periodo', name: 'Periodo', type: 'text' },
+          { id: 'resultado', name: 'Resultado', type: 'text' },
+          { id: 'ahorro', name: 'Ahorro', type: 'currency' },
+          { id: 'seccion', name: 'Sección', type: 'text' },
+          { id: 'investigador', name: 'Investigador', type: 'text' },
+          { id: 'analista', name: 'Analista', type: 'text' },
+          { id: 'estado', name: 'Estado', type: 'text' },
+        ];
+      }
+    });
+    return store;
+  });
+
+  const [viewIdToConfirmDelete, setViewIdToConfirmDelete] = useState<string | null>(null);
+
+  const deleteDataView = (id: string) => {
+    if (dataViews.length <= 1) {
+      alert("Al menos debe quedar una vista de datos.");
+      return;
+    }
+    
+    const viewToDelete = dataViews.find(v => v.id === id);
+    
+    setDataViews(prev => {
+      const nextViews = prev.filter(v => v.id !== id);
+      if (cargaSubView === id) {
+        setCargaSubView(nextViews[0]?.id || '');
+      }
+      
+      // Update any dashboard that was using this source
+      setDashboards(dPrev => dPrev.map(d => d.sourceId === id ? { ...d, sourceId: nextViews[0]?.id || 'granular' } : d));
+      
+      return nextViews;
+    });
+    
+    setGranularDataStore(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setColumnsDataStore(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+
+    if (viewToDelete) {
+      localStorage.removeItem(viewToDelete.dataKey);
+      if (viewToDelete.columnsKey) localStorage.removeItem(viewToDelete.columnsKey);
+    }
+    setViewIdToConfirmDelete(null);
+  };
+
+  // Simple Global Data (keeping it separate for now as it has a very specific structure)
   const [globalData, setGlobalData] = useState<GlobalEntry[]>(() => {
     const saved = localStorage.getItem('crm_global_data');
     if (saved) return JSON.parse(saved);
-    
-    // Expand 3 months to 12 months for both types
     const meses = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
     const initial: GlobalEntry[] = [];
     ['Siniestros', 'Suscripción'].forEach(tipo => {
       meses.forEach(mes => {
         const existing = GLOBAL_DATA.find(d => d.periodo === mes && d.tipo === tipo);
-        if (existing) {
-          initial.push(existing);
-        } else {
-          initial.push({
-            periodo: mes,
-            tipo: tipo as any,
-            trimestre: mes === 'ENERO' || mes === 'FEBRERO' || mes === 'MARZO' ? 'Q1' : 
-                       mes === 'ABRIL' || mes === 'MAYO' || mes === 'JUNIO' ? 'Q2' :
-                       mes === 'JULIO' || mes === 'AGOSTO' || mes === 'SEPTIEMBRE' ? 'Q3' : 'Q4',
-            proyectado: 0,
-            ejecutado: 0,
-            incurridoIB: 0,
-            plan: 0,
-            ejecutadoReal: 0,
-            planPercentAhorroIB: 0,
-            tasaCumplimiento: 0
-          });
-        }
+        if (existing) initial.push(existing);
+        else initial.push({
+          periodo: mes, tipo: tipo as any, trimestre: 'Q1', proyectado: 0, ejecutado: 0,
+          incurridoIB: 0, plan: 0, ejecutadoReal: 0, planPercentAhorroIB: 0, tasaCumplimiento: 0
+        });
       });
     });
     return initial;
   });
 
-  const [acumuladoData, setAcumuladoData] = useState<AccumulatedEntry[]>(() => {
-    const saved = localStorage.getItem('crm_acumulado_data');
-    return saved ? JSON.parse(saved) : ACUMULADO_DATA;
-  });
+  // Convenience alias for current view data
+  const currentGranularRows = granularDataStore[cargaSubView] || [];
+  const currentGranularCols = columnsDataStore[cargaSubView] || [];
 
-  const [auditColumns, setAuditColumns] = useState<any[]>(() => {
-    const saved = localStorage.getItem('crm_audit_columns');
-    return saved ? JSON.parse(saved) : [
-      { id: 'nroSiniestro', name: 'Nro Siniestro', type: 'text', required: true },
-      { id: 'provincia', name: 'Provincia', type: 'text' },
-      { id: 'periodo', name: 'Periodo', type: 'text' },
-      { id: 'resultado', name: 'Resultado', type: 'text' },
-      { id: 'ahorro', name: 'Ahorro', type: 'currency' },
-      { id: 'seccion', name: 'Sección', type: 'text' },
-      { id: 'investigador', name: 'Investigador', type: 'text' },
-      { id: 'analista', name: 'Analista', type: 'text' },
-      { id: 'estado', name: 'Estado', type: 'text' },
-    ];
-  });
+  const currentDashboard = useMemo(() => 
+    dashboards.find(d => d.id === activeDashboardId) || dashboards[0]
+  , [dashboards, activeDashboardId]);
+
+  const dashboardSourceId = currentDashboard?.sourceId || 'granular'; 
+
+  const dashboardData = granularDataStore[dashboardSourceId] || [];
+  const dashboardCols = columnsDataStore[dashboardSourceId] || [];
+
+  const updateDashboardSource = (id: string, sourceId: string) => {
+    setDashboards(prev => prev.map(d => d.id === id ? { ...d, sourceId } : d));
+  };
+
+  const deleteDashboard = (id: string) => {
+    if (dashboards.length <= 1) {
+      alert("Al menos debe quedar un tablero.");
+      return;
+    }
+    
+    setDashboards(prev => {
+      const nextDashboards = prev.filter(d => d.id !== id);
+      if (activeDashboardId === id) {
+        setActiveDashboardId(nextDashboards[0]?.id || '');
+      }
+      return nextDashboards;
+    });
+    
+    setDashIdToConfirmDelete(null);
+  };
+
+  // Persistence for Dashboards Structure
+  useEffect(() => {
+    safeSetItem('crm_dashboards', JSON.stringify(dashboards));
+  }, [dashboards]);
+
+  // Persistence Effects for dynamic store
+  useEffect(() => {
+    Object.entries(granularDataStore).forEach(([id, data]) => {
+      const view = dataViews.find(v => v.id === id);
+      if (view) safeSetItem(view.dataKey, JSON.stringify(data));
+    });
+  }, [granularDataStore, dataViews]);
+
+  useEffect(() => {
+    Object.entries(columnsDataStore).forEach(([id, cols]) => {
+      const view = dataViews.find(v => v.id === id);
+      if (view && view.columnsKey) safeSetItem(view.columnsKey, JSON.stringify(cols));
+    });
+  }, [columnsDataStore, dataViews]);
+
+  useEffect(() => {
+    safeSetItem('crm_global_data', JSON.stringify(globalData));
+  }, [globalData]);
 
   // Perspective states
   const [filterPeriodo, setFilterPeriodo] = useState<string>('All');
@@ -141,36 +315,32 @@ export default function App() {
   const [filterResultado, setFilterResultado] = useState<string>('All');
   const [filterInvestigador, setFilterInvestigador] = useState<string>('All');
   const [filterCulpable, setFilterCulpable] = useState<string>('All');
+  const [showAllRows, setShowAllRows] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   const COLORS = ['#00A1E0', '#FF9D3E', '#10b981', '#ef4444', '#8b5cf6', '#ec4899'];
 
-  // Persistence Effects
-  useEffect(() => {
-    localStorage.setItem('crm_global_data', JSON.stringify(globalData));
-  }, [globalData]);
-
-  useEffect(() => {
-    localStorage.setItem('crm_acumulado_data', JSON.stringify(acumuladoData));
-  }, [acumuladoData]);
-
-  useEffect(() => {
-    localStorage.setItem('crm_audit_columns', JSON.stringify(auditColumns));
-  }, [auditColumns]);
+  // Dynamic filter options based on source data
+  const dynamicInvestigators = useMemo(() => {
+    const list = Array.from(new Set(dashboardData.map((item: any) => String(item.investigador || '').trim())))
+      .filter(Boolean)
+      .sort();
+    return list;
+  }, [dashboardData]);
 
   // Derived Data (Calculated from states)
   const filteredAcumulado = useMemo(() => {
-    return acumuladoData.filter(item => {
+    return dashboardData.filter((item: any) => {
       const matchPeriodo = filterPeriodo === 'All' || item.periodo === filterPeriodo;
       const matchProvincia = filterProvincia === 'All' || item.provincia === filterProvincia;
       const matchResultado = filterResultado === 'All' || item.resultado === filterResultado;
       const matchInvestigador = filterInvestigador === 'All' || item.investigador === filterInvestigador;
       const matchCulpable = filterCulpable === 'All' || item.culpable === filterCulpable;
-      const matchSearch = (item.nroSiniestro?.toLowerCase() || '').includes(searchTerm.toLowerCase()) || 
-                          (item.analista?.toLowerCase() || '').includes(searchTerm.toLowerCase());
+      const matchSearch = (String(item.nroSiniestro || '').toLowerCase()).includes(searchTerm.toLowerCase()) || 
+                          (String(item.analista || '').toLowerCase()).includes(searchTerm.toLowerCase());
       return matchPeriodo && matchProvincia && matchResultado && matchInvestigador && matchCulpable && matchSearch;
     });
-  }, [acumuladoData, filterPeriodo, filterProvincia, filterResultado, filterInvestigador, filterCulpable, searchTerm]);
+  }, [dashboardData, filterPeriodo, filterProvincia, filterResultado, filterInvestigador, filterCulpable, searchTerm]);
 
   const stats = useMemo(() => {
     const totalAhorro = filteredAcumulado.reduce((acc, curr) => acc + curr.ahorro, 0);
@@ -319,41 +489,31 @@ export default function App() {
     }));
   };
 
-  const updateGranularValue = (index: number, field: keyof AccumulatedEntry, value: any) => {
-    setAcumuladoData(prev => {
-      const next = [...prev];
+  const updateGranularValue = (index: number, field: string, value: any) => {
+    setGranularDataStore(prev => {
+      const currentId = cargaSubView;
+      if (!prev[currentId]) return prev;
+      const next = [...prev[currentId]];
       next[index] = { ...next[index], [field]: value };
-      return next;
+      return { ...prev, [currentId]: next };
     });
   };
 
   const addGranularRow = () => {
-    const newEntry: AccumulatedEntry = {
-      nroSiniestro: `SIN-${20260000 + acumuladoData.length}`,
-      fechaSiniestro: '2026-01-01',
-      fechaDenuncia: '2026-01-02',
-      culpable: 'No',
-      provincia: 'Buenos Aires',
-      seccion: 'Automotores',
-      coverage: 'Automotores',
-      poliza: 'POL-NEW',
-      productor: 'Productor',
-      investigador: 'M. Rodriguez',
-      analista: 'Analista',
-      estado: 'Abierto',
-      resultado: 'Acuerdo',
-      periodo: 'ENERO',
-      sumaAsegurada: 0,
-      ahorro: 0
-    };
-    setAcumuladoData(prev => [newEntry, ...prev]);
+    setGranularDataStore(prev => {
+        const currentId = cargaSubView;
+        if (!prev[currentId]) return prev;
+        const newEntry = {
+            nroSiniestro: `SIN-${Date.now()}`,
+            fechaSiniestro: new Date().toISOString().split('T')[0],
+            estado: 'Abierto',
+            ahorro: 0
+        };
+        return { ...prev, [currentId]: [newEntry, ...prev[currentId]] };
+    });
   };
 
-  const deleteGranularRow = (index: number) => {
-    if(window.confirm('¿Eliminar este registro?')) {
-      setAcumuladoData(prev => prev.filter((_, i) => i !== index));
-    }
-  };
+  const currentView = dataViews.find(v => v.id === cargaSubView);
 
   return (
     <div className="min-h-screen bg-brand-bg flex flex-col font-sans text-brand-navy">
@@ -363,7 +523,7 @@ export default function App() {
             A
           </div>
           <div>
-            <h1 className="text-base font-bold text-brand-navy leading-tight">Gestión de Siniestros & Suscripción</h1>
+            <h1 className="text-base font-bold text-brand-navy leading-tight">Gestión de Siniestros</h1>
             <p className="text-[10px] text-brand-gray font-medium uppercase tracking-widest leading-tight mt-0.5">Ejercicio 2026 • CRM Analytics Architect View</p>
           </div>
         </div>
@@ -380,15 +540,6 @@ export default function App() {
               Siniestros
             </button>
             <button 
-              onClick={() => setActiveTab('suscripcion')}
-              className={cn(
-                "px-3 py-1 rounded-sm text-[10px] font-bold transition-all duration-200 uppercase",
-                activeTab === 'suscripcion' ? "bg-white shadow-sm text-brand-blue" : "text-brand-gray hover:text-brand-navy"
-              )}
-            >
-              Suscripción
-            </button>
-            <button 
               onClick={() => setActiveTab('carga')}
               className={cn(
                 "px-3 py-1 rounded-sm text-[10px] font-bold transition-all duration-200 uppercase flex items-center gap-1.5",
@@ -401,18 +552,45 @@ export default function App() {
           </div>
           <button 
             onClick={() => {
-              const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ global: globalData, acumulado: acumuladoData }));
-              const downloadAnchorNode = document.createElement('a');
-              downloadAnchorNode.setAttribute("href",     dataStr);
-              downloadAnchorNode.setAttribute("download", "crm_analytics_export.json");
-              document.body.appendChild(downloadAnchorNode);
-              downloadAnchorNode.click();
-              downloadAnchorNode.remove();
+                const doc = new jsPDF();
+                doc.setFontSize(16);
+                doc.text("Resumen Ejecutivo: Gestión de Siniestros", 14, 15);
+                
+                doc.setFontSize(11);
+                doc.text(`Fecha: ${new Date().toLocaleDateString()}`, 14, 25);
+                
+                const kpiData = [
+                  ['Concepto', 'Valor'],
+                  ['Ahorro Total', formatCurrency(stats.totalAhorro)],
+                  ['Tasa Cumplimiento', `${stats.cumplimientoAvg.toFixed(1)}%`],
+                  ['Siniestros Auditados', stats.uniqueSiniestros.toString()]
+                ];
+                
+                autoTable(doc, {
+                  head: [kpiData[0]],
+                  body: kpiData.slice(1),
+                  startY: 35,
+                  theme: 'striped'
+                });
+
+                const outcomeData = [
+                    ['Resultado', 'Monto ($)'],
+                    ...outcomePieData.map((d: any) => [d.name, formatCurrency(d.value)])
+                ];
+
+                autoTable(doc, {
+                    head: [outcomeData[0]],
+                    body: outcomeData.slice(1),
+                    startY: (doc as any).lastAutoTable.finalY + 10,
+                    theme: 'striped'
+                });
+
+                doc.save("Resumen_Ejecutivo_Siniestros.pdf");
             }}
             className="flex items-center gap-2 px-3 py-1.5 h-9 bg-brand-blue text-white rounded-sm text-[10px] font-bold hover:opacity-90 transition-all uppercase shadow-sm"
           >
             <Download className="w-3.5 h-3.5" />
-            Exportar
+            Exportar a PDF
           </button>
         </div>
       </header>
@@ -427,49 +605,347 @@ export default function App() {
                 Gestión de Datos
               </div>
               <div className="flex flex-col gap-1">
-                <button 
-                  onClick={() => setCargaSubView('mensual')}
-                  className={cn(
-                    "w-full text-left px-3 py-2 text-[10px] font-bold uppercase transition-all rounded-sm",
-                    cargaSubView === 'mensual' ? "bg-brand-blue text-white shadow-sm" : "text-brand-gray hover:bg-brand-bg"
-                  )}
-                >
-                  Planificación Mensual
-                </button>
-                <button 
-                  onClick={() => setCargaSubView('granular')}
-                  className={cn(
-                    "w-full text-left px-3 py-2 text-[10px] font-bold uppercase transition-all rounded-sm",
-                    cargaSubView === 'granular' ? "bg-brand-blue text-white shadow-sm" : "text-brand-gray hover:bg-brand-bg"
-                  )}
-                >
-                  Registros Granulares
-                </button>
-              </div>
-              <div className="mt-auto border-t border-brand-bg pt-4">
-                 <button 
-                   onClick={() => {
-                     if(window.confirm('¿Desea restablecer todos los datos manuales y configuraciones de columnas?')) {
-                       localStorage.removeItem('crm_global_data');
-                       localStorage.removeItem('crm_acumulado_data');
-                       localStorage.removeItem('crm_audit_columns');
-                       window.location.reload();
-                     }
-                   }}
-                   className="w-full flex items-center justify-center gap-2 px-3 py-2 border border-rose-200 text-rose-500 rounded-sm text-[10px] font-bold uppercase hover:bg-rose-50 transition-all"
-                 >
-                   <Trash2 className="w-3 h-3" />
-                   Borrar Datos
-                 </button>
+                {dataViews.map(view => (
+                  <div key={view.id} className="flex items-center group relative">
+                    {editingTitleKey === view.id ? (
+                      <input 
+                        autoFocus
+                        type="text"
+                        defaultValue={view.title}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                const newTitle = (e.target as HTMLInputElement).value;
+                                setDataViews(prev => prev.map(v => v.id === view.id ? { ...v, title: newTitle } : v));
+                                setEditingTitleKey(null);
+                            }
+                            if (e.key === 'Escape') {
+                                setEditingTitleKey(null);
+                            }
+                        }}
+                        onBlur={(e) => {
+                          const newTitle = e.target.value;
+                          setDataViews(prev => prev.map(v => v.id === view.id ? { ...v, title: newTitle } : v));
+                          setEditingTitleKey(null);
+                        }}
+                        className="w-full text-left px-3 py-2 text-[10px] font-bold uppercase transition-all rounded-sm bg-blue-50 outline-none ring-2 ring-brand-blue/50"
+                      />
+                    ) : (
+                      <button 
+                        onClick={() => setCargaSubView(view.id)}
+                        onDoubleClick={() => setEditingTitleKey(view.id)}
+                        title="Doble clic para renombrar"
+                        className={cn(
+                          "flex-1 text-left px-3 py-2 text-[10px] font-bold uppercase transition-all rounded-sm pr-10",
+                          cargaSubView === view.id ? "bg-brand-blue text-white shadow-sm" : "text-brand-gray hover:bg-brand-bg hover:text-brand-navy"
+                        )}
+                      >
+                        {view.title}
+                      </button>
+                    )}
+                    <div className={cn(
+                      "absolute right-1 flex items-center transition-all",
+                      cargaSubView === view.id ? (viewIdToConfirmDelete === view.id ? "opacity-100" : "opacity-0 group-hover:opacity-100 text-white") : (viewIdToConfirmDelete === view.id ? "opacity-100" : "opacity-0 group-hover:opacity-100 text-brand-gray")
+                    )}>
+                      {viewIdToConfirmDelete === view.id ? (
+                        <div className="flex items-center gap-0.5 bg-rose-500 rounded-sm">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); deleteDataView(view.id); }} 
+                            title="Confirmar eliminación"
+                            className="p-1.5 hover:bg-white/20 text-white"
+                          >
+                            <Check className="w-3 h-3" />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setViewIdToConfirmDelete(null); }} 
+                            title="Cancelar"
+                            className="p-1.5 hover:bg-white/20 text-white border-l border-white/20"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setEditingTitleKey(view.id); }} 
+                            title="Renombrar"
+                            className="p-1.5 rounded-sm hover:bg-white/20"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setViewIdToConfirmDelete(view.id); }} 
+                            title="Eliminar"
+                            className="p-1.5 rounded-sm hover:bg-rose-500/20 text-inherit"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {isCreatingView ? (
+                  <div className="mt-2">
+                    <input 
+                      autoFocus
+                      type="text"
+                      placeholder="Nombre..."
+                      value={newViewTitle}
+                      onChange={(e) => setNewViewTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                          if (e.key === 'Enter' && newViewTitle.trim()) {
+                              const id = `custom_${Date.now()}`;
+                              const title = newViewTitle.trim();
+                              const newView: DataView = {
+                                  id,
+                                  title,
+                                  type: 'granular',
+                                  dataKey: `crm_data_${id}`,
+                                  columnsKey: `crm_cols_${id}`
+                              };
+                              setDataViews(prev => [...prev, newView]);
+                              setGranularDataStore(prev => ({ ...prev, [id]: [] }));
+                              setColumnsDataStore(prev => ({ ...prev, [id]: [...(columnsDataStore['granular'] || [])] }));
+                              setCargaSubView(id);
+                              setIsCreatingView(false);
+                              setNewViewTitle('');
+                          }
+                          if (e.key === 'Escape') {
+                              setIsCreatingView(false);
+                              setNewViewTitle('');
+                          }
+                      }}
+                      onBlur={() => {
+                          if (!newViewTitle.trim()) {
+                              setIsCreatingView(false);
+                          }
+                      }}
+                      className="w-full text-left px-3 py-2 text-[10px] font-bold uppercase transition-all rounded-sm bg-blue-50 outline-none ring-2 ring-brand-blue/50"
+                    />
+                    <div className="flex justify-between mt-1 px-1">
+                        <span className="text-[8px] text-brand-gray uppercase">Enter para crear</span>
+                        <span className="text-[8px] text-brand-gray uppercase">Esc para cancelar</span>
+                    </div>
+                  </div>
+                ) : (
+                  <button 
+                    onClick={() => setIsCreatingView(true)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 mt-2 border border-brand-blue/30 text-brand-blue rounded-sm text-[10px] font-bold uppercase hover:bg-blue-50 transition-all font-mono"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Nuevo Registro
+                  </button>
+                )}
               </div>
             </>
           ) : (
             <>
               <div className="flex items-center gap-2 text-brand-navy font-bold text-[11px] uppercase tracking-widest pb-2 border-b border-brand-bg">
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                Mis Tableros
+              </div>
+              <div className="flex flex-col gap-1 mb-4">
+                {dashboards.map(dash => (
+                  <div key={dash.id} className="flex items-center group relative">
+                    {editingDashId === dash.id ? (
+                      <input 
+                        autoFocus
+                        type="text"
+                        defaultValue={dash.title}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                                const newTitle = (e.target as HTMLInputElement).value;
+                                setDashboards(prev => prev.map(d => d.id === dash.id ? { ...d, title: newTitle } : d));
+                                setEditingDashId(null);
+                            }
+                            if (e.key === 'Escape') setEditingDashId(null);
+                        }}
+                        onBlur={(e) => {
+                          const newTitle = e.target.value;
+                          setDashboards(prev => prev.map(d => d.id === dash.id ? { ...d, title: newTitle } : d));
+                          setEditingDashId(null);
+                        }}
+                        className="w-full text-left px-3 py-2 text-[10px] font-bold uppercase transition-all rounded-sm bg-blue-50 outline-none ring-2 ring-brand-blue/50"
+                      />
+                    ) : (
+                      <button 
+                        onClick={() => setActiveDashboardId(dash.id)}
+                        onDoubleClick={() => setEditingDashId(dash.id)}
+                        className={cn(
+                          "flex-1 text-left px-3 py-2 text-[10px] font-bold uppercase transition-all rounded-sm pr-16",
+                          activeDashboardId === dash.id ? "bg-brand-blue text-white shadow-sm" : "text-brand-gray hover:bg-brand-bg hover:text-brand-navy"
+                        )}
+                      >
+                        {dash.title}
+                      </button>
+                    )}
+                    <div className={cn(
+                      "absolute right-1 flex items-center transition-all",
+                      activeDashboardId === dash.id ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                      activeDashboardId === dash.id ? "text-white" : "text-brand-gray"
+                    )}>
+                      {dashIdToConfirmDelete === dash.id ? (
+                        <div className="flex items-center gap-0.5 bg-rose-500 rounded-sm">
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); deleteDashboard(dash.id); }} 
+                            className="p-1.5 hover:bg-white/20 text-white"
+                          >
+                            <Check className="w-3 h-3" />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setDashIdToConfirmDelete(null); }} 
+                            className="p-1.5 hover:bg-white/20 text-white border-l border-white/20"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setEditingDashId(dash.id); }} 
+                            className="p-1.5 rounded-sm hover:bg-white/20"
+                            title="Renombrar"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setDashIdToConfirmDelete(dash.id); }} 
+                            className="p-1.5 rounded-sm hover:bg-rose-500/20 text-inherit"
+                            title="Eliminar"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {isCreatingDashboard ? (
+                  <div className="p-3 bg-brand-bg/50 rounded-sm border border-brand-border space-y-2 mt-2">
+                    <input 
+                      autoFocus
+                      type="text"
+                      placeholder="Nombre Tablero..."
+                      value={newDashTitle}
+                      onChange={(e) => setNewDashTitle(e.target.value)}
+                      className="w-full text-[10px] p-2 outline-none border border-brand-border focus:ring-1 focus:ring-brand-blue"
+                    />
+                    <div className="space-y-1">
+                       <label className="text-[8px] font-bold text-brand-gray uppercase">Origen de Datos</label>
+                       <select 
+                         value={newDashSource}
+                         onChange={(e) => setNewDashSource(e.target.value)}
+                         className="w-full text-[9px] p-1 border border-brand-border outline-none"
+                       >
+                         {dataViews.filter(v => v.type === 'granular').map(v => (
+                           <option key={v.id} value={v.id}>{v.title}</option>
+                         ))}
+                       </select>
+                    </div>
+                    <div className="space-y-1">
+                       <label className="text-[8px] font-bold text-brand-gray uppercase">CAMPOS DETALLE (Opcional)</label>
+                       <div className="max-h-24 overflow-y-auto border border-brand-border p-1 bg-white">
+                          {(columnsDataStore[newDashSource] || []).map((col: any) => (
+                            <label key={col.id} className="flex items-center gap-2 text-[8px] uppercase p-1 hover:bg-brand-bg cursor-pointer">
+                               <input 
+                                 type="checkbox"
+                                 checked={newDashFields.includes(col.id)}
+                                 onChange={(e) => {
+                                   if (e.target.checked) setNewDashFields([...newDashFields, col.id]);
+                                   else setNewDashFields(newDashFields.filter(f => f !== col.id));
+                                 }}
+                               />
+                               {col.name}
+                            </label>
+                          ))}
+                       </div>
+                    </div>
+                    <div className="space-y-1">
+                       <label className="text-[8px] font-bold text-brand-gray uppercase">GRÁFICOS / INDICADORES</label>
+                       <div className="max-h-24 overflow-y-auto border border-brand-border p-1 bg-white">
+                          {AVAILABLE_WIDGETS.map((widget) => (
+                            <label key={widget.id} className="flex items-center gap-2 text-[8px] uppercase p-1 hover:bg-brand-bg cursor-pointer">
+                               <input 
+                                 type="checkbox"
+                                 checked={newDashWidgets.includes(widget.id)}
+                                 onChange={(e) => {
+                                   if (e.target.checked) setNewDashWidgets([...newDashWidgets, widget.id]);
+                                   else setNewDashWidgets(newDashWidgets.filter(w => w !== widget.id));
+                                 }}
+                               />
+                               {widget.name}
+                            </label>
+                          ))}
+                       </div>
+                    </div>
+                    <div className="flex gap-2">
+                       <button 
+                         onClick={() => {
+                           if (!newDashTitle.trim()) return;
+                           const id = `dash_${Date.now()}`;
+                           const newDash: DashboardConfig = {
+                             id,
+                             title: newDashTitle.trim(),
+                             sourceId: newDashSource,
+                             visibleFields: newDashFields.length > 0 ? newDashFields : (columnsDataStore[newDashSource] || []).map((c: any) => c.id),
+                             widgets: newDashWidgets
+                           };
+                           setDashboards([...dashboards, newDash]);
+                           setActiveDashboardId(id);
+                           setIsCreatingDashboard(false);
+                           setNewDashTitle('');
+                           setNewDashFields([]);
+                         }}
+                         className="flex-1 py-1.5 bg-brand-blue text-white text-[9px] font-bold uppercase rounded-sm"
+                       >
+                         Crear
+                       </button>
+                       <button 
+                         onClick={() => {
+                           setIsCreatingDashboard(false);
+                           setNewDashTitle('');
+                           setNewDashFields([]);
+                         }}
+                         className="flex-1 py-1.5 border border-brand-border text-brand-gray text-[9px] font-bold uppercase rounded-sm"
+                       >
+                         Cancelar
+                       </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button 
+                    onClick={() => setIsCreatingDashboard(true)}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 mt-2 border border-brand-blue/30 text-brand-blue rounded-sm text-[10px] font-bold uppercase hover:bg-blue-50 transition-all font-mono"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Crear Tablero
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 text-brand-navy font-bold text-[11px] uppercase tracking-widest pb-2 border-b border-brand-bg">
                 <Filter className="w-3.5 h-3.5" />
                 Configuración
               </div>
               <div className="space-y-4">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-brand-blue uppercase tracking-widest flex items-center gap-1.5 mb-1 bg-blue-50 p-1.5 rounded-sm border border-blue-100">
+                    <Database className="w-3 h-3" />
+                    Origen del Tablero
+                  </label>
+                  <select 
+                    value={dashboardSourceId} 
+                    onChange={(e) => updateDashboardSource(activeDashboardId, e.target.value)}
+                    className="w-full bg-white border border-brand-blue/30 rounded-sm p-1.5 text-xs text-brand-navy outline-none focus:border-brand-blue transition-all"
+                  >
+                    {dataViews.filter(v => v.type === 'granular').map(v => (
+                      <option key={v.id} value={v.id}>{v.title}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-brand-gray uppercase tracking-widest">Periodo</label>
                   <select 
@@ -526,20 +1002,7 @@ export default function App() {
                     className="w-full bg-white border border-brand-border rounded-sm p-1.5 text-xs text-brand-navy outline-none focus:border-brand-blue transition-all"
                   >
                     <option value="All">Todos</option>
-                    {INVESTIGATORS.map(inv => <option key={inv} value={inv}>{inv}</option>)}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-brand-gray uppercase tracking-widest">Culpable</label>
-                  <select 
-                    value={filterCulpable} 
-                    onChange={(e) => setFilterCulpable(e.target.value)}
-                    className="w-full bg-white border border-brand-border rounded-sm p-1.5 text-xs text-brand-navy outline-none focus:border-brand-blue transition-all"
-                  >
-                    <option value="All">Todos (Sí / No)</option>
-                    <option value="Sí">Sí</option>
-                    <option value="No">No</option>
+                    {dynamicInvestigators.map(inv => <option key={inv} value={inv}>{inv}</option>)}
                   </select>
                 </div>
               </div>
@@ -559,12 +1022,12 @@ export default function App() {
           <div className="mx-auto space-y-3">
             {activeTab === 'carga' ? (
                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-                 {cargaSubView === 'mensual' ? (
+                 {currentView?.type === 'mensual' ? (
                    <div className="bg-white border border-brand-border rounded-sm overflow-hidden shadow-sm">
                       <div className="bg-brand-navy p-3 border-b border-brand-border flex justify-between items-center">
                         <h2 className="text-white text-xs font-bold uppercase tracking-widest flex items-center gap-2">
                           <Grid className="w-4 h-4" />
-                          Planificación Mensual (Carga Directa)
+                          {currentView.title} (Carga Directa)
                         </h2>
                         <div className="text-[10px] text-white/70 font-medium italic">
                           * Los cambios impactan en tiempo real en los gráficos
@@ -653,102 +1116,154 @@ export default function App() {
                  ) : (
                    <div className="bg-white border border-brand-border rounded-sm overflow-hidden shadow-sm flex flex-col h-[700px]">
                       <ExcelGrid 
-                        rows={acumuladoData} 
-                        onRowsChange={setAcumuladoData}
-                        columns={auditColumns}
-                        onColumnsChange={setAuditColumns}
+                        rows={currentGranularRows} 
+                        onRowsChange={(newRows) => {
+                            setGranularDataStore(prev => ({ ...prev, [cargaSubView]: newRows }));
+                        }}
+                        columns={currentGranularCols}
+                        onColumnsChange={(newCols) => {
+                            setColumnsDataStore(prev => ({ ...prev, [cargaSubView]: newCols }));
+                        }}
                         onPersist={() => {
                           alert('Datos y configuración de columnas guardados exitosamente.');
                         }} 
                       />
-                   </div>
-                 )}
-               </div>
-            ) : (
-               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-3">
-                 <div id="stats-grid" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              <KpiCard 
-                id="kpi-ahorro"
-                title="Ahorro Total Alcance"
-                value={formatCurrency(stats.totalAhorro)}
-                subtext="▲ 4.2% vs Proyectado"
-                trend={stats.ahorroVsMeta >= 100 ? 'up' : 'down'}
-                trendValue={`${stats.ahorroVsMeta.toFixed(1)}%`}
-                info="Suma total de ahorros registrados en la grilla de auditoría para el período y filtros seleccionados."
-              />
-              <KpiCard 
-                id="kpi-cumplimiento"
-                title="Tasa Cumplimiento"
-                value={`${stats.cumplimientoAvg.toFixed(1)}%`}
-                subtext="Meta: 92.00%"
-                info="Relación porcentual entre los ahorros reales logrados (Alcance) y la meta planificada (Plan) en el presupuesto mensual."
-              />
-              <KpiCard 
-                id="kpi-siniestros"
-                title="Siniestros con Ahorro"
-                value={stats.uniqueSiniestros.toLocaleString()}
-                subtext={`Total período: ${filteredAcumulado.length}`}
-                info="Cantidad total de siniestros cerrados que generaron un ahorro positivo en la auditoría."
-              />
-            </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-3">
+                  <div id="stats-grid" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {currentDashboard?.widgets?.includes('kpi-ahorro') && (
+                      <KpiCard 
+                        id="kpi-ahorro"
+                        title="Ahorro Total Alcance"
+                        value={formatCurrency(stats.totalAhorro)}
+                        subtext="▲ 4.2% vs Proyectado"
+                        trend={stats.ahorroVsMeta >= 100 ? 'up' : 'down'}
+                        trendValue={`${stats.ahorroVsMeta.toFixed(1)}%`}
+                        info="Suma total de ahorros registrados en la grilla de auditoría para el período y filtros seleccionados."
+                      />
+                    )}
+                    {currentDashboard?.widgets?.includes('kpi-cumplimiento') && (
+                      <KpiCard 
+                        id="kpi-cumplimiento"
+                        title="Tasa Cumplimiento"
+                        value={`${stats.cumplimientoAvg.toFixed(1)}%`}
+                        subtext="Meta: 92.00%"
+                        info="Relación porcentual entre los ahorros reales logrados (Alcance) y la meta planificada (Plan) en el presupuesto mensual."
+                      />
+                    )}
+                    {currentDashboard?.widgets?.includes('kpi-siniestros') && (
+                      <KpiCard 
+                        id="kpi-siniestros"
+                        title="Siniestros con Ahorro"
+                        value={stats.uniqueSiniestros.toLocaleString()}
+                        subtext={`Total período: ${filteredAcumulado.length}`}
+                        info="Cantidad total de siniestros cerrados que generaron un ahorro positivo en la auditoría."
+                      />
+                    )}
+                  </div>
 
-            <div id="visuals-top" className="grid grid-cols-1 gap-3">
-               <ChartContainer id="chart-performance" title="Proyectado vs Alcance & Cumplimiento (%)" className="w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={timeChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8E8E8" />
-                    <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} tick={{fill: '#706E6B'}} />
-                    <YAxis yAxisId="left" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `$${(val/1000000).toFixed(0)}M`} tick={{fill: '#706E6B'}} />
-                    <YAxis yAxisId="right" orientation="right" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `${val.toFixed(0)}%`} tick={{fill: '#FF9D3E'}} />
-                    <Tooltip 
-                      contentStyle={{ borderRadius: '2px', border: '1px solid #D8DDE6', boxShadow: 'none' }}
-                      itemStyle={{ fontSize: '10px' }}
-                      formatter={(val: number, name: string) => {
-                        if (name === 'Cumplimiento') return [`${val.toFixed(1)}%`, name];
-                        return [formatCurrency(val), name];
-                      }}
-                    />
-                    <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
-                    <Bar yAxisId="left" dataKey="Proyectado" fill="#B0ADAB" barSize={30} />
-                    <Bar yAxisId="left" dataKey="Alcance" fill="#00A1E0" barSize={30} />
-                    <Line yAxisId="right" type="monotone" dataKey="Cumplimiento" stroke="#FF9D3E" strokeWidth={2} dot={{ r: 3, fill: '#FF9D3E' }} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </div>
+                  {currentDashboard?.widgets?.includes('chart-performance') && (
+                    <div id="visuals-top" className="grid grid-cols-1 gap-3">
+                      <ChartContainer id="chart-performance" title="Proyectado vs Alcance & Cumplimiento (%)" className="w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <ComposedChart data={timeChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8E8E8" />
+                            <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} tick={{fill: '#706E6B'}} />
+                            <YAxis yAxisId="left" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `$${(val/1000000).toFixed(0)}M`} tick={{fill: '#706E6B'}} />
+                            <YAxis yAxisId="right" orientation="right" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `${val.toFixed(0)}%`} tick={{fill: '#FF9D3E'}} />
+                            <Tooltip 
+                              contentStyle={{ borderRadius: '2px', border: '1px solid #D8DDE6', boxShadow: 'none' }}
+                              itemStyle={{ fontSize: '10px' }}
+                              formatter={(val: number, name: string) => {
+                                if (name === 'Cumplimiento') return [`${val.toFixed(1)}%`, name];
+                                return [formatCurrency(val), name];
+                              }}
+                            />
+                            <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
+                            <Bar yAxisId="left" dataKey="Proyectado" fill="#B0ADAB" barSize={30} />
+                            <Bar yAxisId="left" dataKey="Alcance" fill="#00A1E0" barSize={30} />
+                            <Line yAxisId="right" type="monotone" dataKey="Cumplimiento" stroke="#FF9D3E" strokeWidth={2} dot={{ r: 3, fill: '#FF9D3E' }} />
+                          </ComposedChart>
+                        </ResponsiveContainer>
+                      </ChartContainer>
+                    </div>
+                  )}
 
-            <div id="visuals-bottom" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              <ChartContainer id="chart-outcomes" title="Distribución por Resultado">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={outcomePieData}
-                      innerRadius={0}
-                      outerRadius={75}
-                      dataKey="value"
-                    >
-                      {outcomePieData.map((_entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="white" strokeWidth={2} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(val: number) => formatCurrency(val)} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </ChartContainer>
+                  <div id="visuals-bottom" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {currentDashboard?.widgets?.includes('chart-outcomes') && (
+                      <ChartContainer id="chart-outcomes" title="Distribución por Resultado">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart margin={{ top: 0, left: 0, right: 0, bottom: 20 }}>
+                            <Pie
+                              data={outcomePieData}
+                              innerRadius={0}
+                              outerRadius={70}
+                              dataKey="value"
+                              labelLine={true}
+                              label={({ name, percent }) => {
+                                const labelName = name.length > 8 ? `${name.substring(0, 8)}...` : name;
+                                return `${labelName} ${(percent * 100).toFixed(0)}%`;
+                              }}
+                            >
+                              {outcomePieData.map((_entry, index) => (
+                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="white" strokeWidth={2} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(val: number) => formatCurrency(val)} />
+                            <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '9px', paddingTop: '10px' }} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </ChartContainer>
+                    )}
 
-              <ChartContainer id="chart-investigators" title="Top Investigadores (Ranking)">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart layout="vertical" data={topInvestigatorsData} margin={{ left: -30, right: 20 }}>
-                    <XAxis type="number" hide />
-                    <YAxis dataKey="name" type="category" width={100} fontSize={9} tickLine={false} axisLine={false} />
-                    <Tooltip formatter={(val: number) => formatCurrency(val)} />
-                    <Bar dataKey="value" fill="#00A1E0" barSize={10} radius={[0, 1, 1, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartContainer>
-            </div>
+                    {currentDashboard?.widgets?.includes('chart-savings-study') && (
+                      <ChartContainer id="chart-savings-study" title="Ahorro por Estudio ($)">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={topInvestigatorsData} margin={{ top: 20, right: 30, left: 20, bottom: 50 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8E8E8" />
+                            <XAxis 
+                              dataKey="name" 
+                              fontSize={8} 
+                              interval={0} 
+                              angle={-45} 
+                              textAnchor="end" 
+                              tickLine={false} 
+                              axisLine={false} 
+                            />
+                            <YAxis 
+                               fontSize={8} 
+                               tickLine={false} 
+                               axisLine={false} 
+                               tickFormatter={(val) => `$${(val / 1000000).toFixed(1)}M`} 
+                            />
+                            <Tooltip 
+                              formatter={(val: number) => formatCurrency(val)}
+                              contentStyle={{ fontSize: '10px', borderRadius: '2px' }}
+                            />
+                            <Bar dataKey="value" fill="#10b981" radius={[2, 2, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </ChartContainer>
+                    )}
 
-            <div id="audit-table-section" className="bg-white rounded-sm border border-brand-border overflow-hidden mb-6">
+                    {currentDashboard?.widgets?.includes('chart-investigators') && (
+                      <ChartContainer id="chart-investigators" title="Top Investigadores (Ranking)">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart layout="vertical" data={topInvestigatorsData} margin={{ left: -30, right: 20 }}>
+                            <XAxis type="number" hide />
+                            <YAxis dataKey="name" type="category" width={100} fontSize={9} tickLine={false} axisLine={false} />
+                            <Tooltip formatter={(val: number) => formatCurrency(val)} />
+                            <Bar dataKey="value" fill="#00A1E0" barSize={10} radius={[0, 1, 1, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </ChartContainer>
+                    )}
+                  </div>
+
+                  <div id="audit-table-section" className="bg-white rounded-sm border border-brand-border overflow-hidden mb-6">
               <div className="p-4 border-b border-brand-bg flex flex-col md:flex-row justify-between items-center gap-4">
                 <h3 className="text-xs font-bold text-brand-navy uppercase tracking-widest">Detalle de Siniestros Granular (Auditoría)</h3>
                 <div className="relative w-full md:w-72">
@@ -767,38 +1282,39 @@ export default function App() {
                 <table className="w-full text-left border-collapse text-[10px]">
                   <thead className="bg-[#F3F2F2]">
                     <tr>
-                      <th className="px-4 py-2 font-bold text-brand-gray uppercase border-b border-brand-border">Nro Siniestro</th>
-                      <th className="px-4 py-2 font-bold text-brand-gray uppercase border-b border-brand-border">Provincia</th>
-                      <th className="px-4 py-2 font-bold text-brand-gray uppercase border-b border-brand-border">Sección</th>
-                      <th className="px-4 py-2 font-bold text-brand-gray uppercase border-b border-brand-border">Analista</th>
-                      <th className="px-4 py-2 font-bold text-brand-gray uppercase border-b border-brand-border">Resultado</th>
-                      <th className="px-4 py-2 font-bold text-brand-gray uppercase border-b border-brand-border text-right">Ahorro ($)</th>
+                      {currentDashboard?.visibleFields?.map(fieldId => {
+                        const col = dashboardCols.find((c: any) => c.id === fieldId);
+                        return (
+                          <th key={fieldId} className="px-4 py-2 font-bold text-brand-gray uppercase border-b border-brand-border">
+                            {col?.name || fieldId}
+                          </th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#F3F2F2]">
-                    {filteredAcumulado.slice(0, 15).map((row, idx) => (
-                      <tr key={idx} className="hover:bg-brand-bg/50 transition-colors">
-                        <td className="px-4 py-2 font-semibold text-brand-blue">{row.nroSiniestro}</td>
-                        <td className="px-4 py-2 text-brand-navy">{row.provincia}</td>
-                        <td className="px-4 py-2 text-brand-navy">{row.seccion}</td>
-                        <td className="px-4 py-2 text-brand-navy">{row.analista}</td>
-                        <td className="px-4 py-2">
-                          <span className={cn(
-                            "px-1.5 py-0.5 rounded-sm text-[8px] font-bold uppercase",
-                            row.resultado === 'Acuerdo' ? "bg-emerald-50 text-emerald-600" : "bg-blue-50 text-blue-600"
-                          )}>
-                            {row.resultado}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 font-bold text-brand-navy text-right">{formatCurrency(row.ahorro)}</td>
+                    {filteredAcumulado.slice(0, showAllRows ? undefined : 15).map((row, idx) => (
+                      <tr key={idx} className="hover:bg-brand-bg/50 transition-colors text-brand-navy">
+                        {currentDashboard?.visibleFields?.map(fieldId => {
+                          const col = dashboardCols.find((c: any) => c.id === fieldId);
+                          const value = row[fieldId];
+                          return (
+                            <td key={fieldId} className={cn("px-4 py-2", col?.type === 'currency' && "font-bold text-right")}>
+                              {col?.type === 'currency' ? formatCurrency(value) : String(value || '-')}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
               <div className="p-3 bg-white border-t border-brand-border text-center">
-                <button className="text-[9px] font-bold text-brand-blue hover:underline uppercase transition-all tracking-widest">
-                  Ver registros completos • Augment por Periodo
+                <button 
+                  onClick={() => setShowAllRows(!showAllRows)}
+                  className="text-[9px] font-bold text-brand-blue hover:underline uppercase transition-all tracking-widest"
+                >
+                  {showAllRows ? 'Ver menos' : 'Ver registros completos • Augment por Periodo'}
                 </button>
               </div>
             </div>
