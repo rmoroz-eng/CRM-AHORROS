@@ -17,6 +17,7 @@ export interface AccumulatedEntry {
   fechaDenuncia: string;
   culpable: 'Sí' | 'No';
   provincia: string;
+  seccion: string;
   coverage: string;
   poliza: string;
   productor: string;
@@ -41,7 +42,7 @@ export const GLOBAL_DATA: GlobalEntry[] = [
 ];
 
 export const PROVINCIAS = ['Buenos Aires', 'CABA', 'Santa Fe', 'Córdoba', 'Mendoza', 'Tucumán', 'Entre Ríos', 'Salta'];
-export const COVERAGES = ['Automotores', 'Hogar', 'Integral de Comercio', 'Vida', 'Responsabilidad Civil'];
+export const SECCIONES = ['1', '21', '2', '3', '4'];
 export const ANALYSTS = ['Juan Perez', 'Maria Garcia', 'Carlos Lopez', 'Ana Martinez'];
 export const INVESTIGATORS = ['Estudio Rivas', 'Control Riesgo', 'Investit S.A.', 'M. Rodriguez'];
 
@@ -58,7 +59,8 @@ export const ACUMULADO_DATA: AccumulatedEntry[] = Array.from({ length: 150 }).ma
     fechaDenuncia: `2026-0${periodos.indexOf(periodo) + 1}-12`,
     culpable: Math.random() > 0.5 ? 'Sí' : 'No',
     provincia: PROVINCIAS[Math.floor(Math.random() * PROVINCIAS.length)],
-    coverage: COVERAGES[Math.floor(Math.random() * COVERAGES.length)],
+    seccion: SECCIONES[Math.floor(Math.random() * SECCIONES.length)],
+    coverage: 'Todo Riesgo',
     poliza: `POL-${100000 + i}`,
     productor: `Prod ${Math.floor(Math.random() * 20)}`,
     investigador: INVESTIGATORS[Math.floor(Math.random() * INVESTIGATORS.length)],
