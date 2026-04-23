@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import { motion } from 'motion/react';
 import { 
   Plus, Trash2, Settings, Download, Upload, Save,
   Search, AlertCircle, CheckCircle2, ChevronRight,
@@ -243,7 +244,12 @@ export const ExcelGrid: React.FC<ExcelGridProps> = ({ rows, onRowsChange, column
   );
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-sm border border-brand-border overflow-hidden">
+    <motion.div 
+      initial={{ opacity: 0, scale: 0.995 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.3 }}
+      className="flex flex-col h-full bg-white rounded-sm border border-brand-border overflow-hidden"
+    >
       {/* Utility Bar */}
       <div className="p-3 border-b border-brand-bg flex items-center justify-between bg-brand-bg/50">
         <div className="flex items-center gap-4">
@@ -626,6 +632,6 @@ export const ExcelGrid: React.FC<ExcelGridProps> = ({ rows, onRowsChange, column
            </div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 };

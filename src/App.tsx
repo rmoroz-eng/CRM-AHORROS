@@ -13,7 +13,8 @@ import {
 import { 
   TrendingUp, Users, ShieldCheck, PieChart as PieChartIcon, 
   Filter, Search, ArrowUpRight, ArrowDownRight, 
-  FileText, Download, Clock, Database, Plus, Trash2, Save, Grid, LayoutDashboard, Settings, Pencil, Edit2, Check, X
+  FileText, Download, Clock, Database, Plus, Trash2, Save, Grid, LayoutDashboard, Settings, Pencil, Edit2, Check, X,
+  Columns as ColumnsIcon, Layers, Maximize2, Minimize2, Copy, RefreshCw
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { ExcelGrid } from '@/src/components/ExcelGrid';
@@ -31,21 +32,23 @@ const KpiCard = ({ title, value, subtext, trend, trendValue, id, info }: any) =>
     id={id}
     initial={{ opacity: 0, y: 20 }}
     animate={{ opacity: 1, y: 0 }}
-    className="group relative bg-white p-4 rounded-sm shadow-none border border-brand-border flex flex-col justify-center min-h-[100px]"
+    whileHover={{ y: -4, transition: { duration: 0.2 } }}
+    transition={{ duration: 0.4, ease: "easeOut" }}
+    className="group relative bg-white p-4 rounded-sm shadow-sm border border-brand-border flex flex-col justify-center min-h-[100px] cursor-default"
   >
     {/* Tooltip Emergente */}
-    <div className="invisible group-hover:visible absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full w-48 p-2 bg-brand-navy text-white text-[9px] rounded shadow-xl z-50 pointer-events-none transition-all uppercase tracking-wider leading-relaxed">
+    <div className="invisible group-hover:visible translate-y-2 group-hover:translate-y-0 opacity-0 group-hover:opacity-100 absolute -top-2 left-1/2 -translate-x-1/2 -translate-y-full w-48 p-2 bg-brand-navy text-white text-[9px] rounded shadow-xl z-50 pointer-events-none transition-all duration-200 uppercase tracking-wider leading-relaxed">
       {info || "Información del indicador"}
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full border-4 border-transparent border-t-brand-navy" />
     </div>
 
     <div className="flex justify-between items-start">
-      <div className="p-1 px-2 border border-brand-border rounded text-xs font-bold text-brand-blue uppercase">
+      <div className="p-1 px-2 border border-brand-border rounded text-xs font-bold text-brand-blue uppercase bg-brand-bg/30">
         {title.split(' ')[0]}
       </div>
       {trend && (
         <div className={cn(
-          "flex items-center gap-1 text-[11px] font-semibold",
+          "flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full bg-brand-bg",
           trend === 'up' ? "text-brand-success" : "text-rose-500"
         )}>
           {trend === 'up' ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
@@ -56,7 +59,7 @@ const KpiCard = ({ title, value, subtext, trend, trendValue, id, info }: any) =>
     <div className="mt-2 text-center">
       <h3 className="text-[11px] font-bold text-brand-gray uppercase tracking-wider mb-1">{title}</h3>
       <p className="text-2xl font-light text-brand-blue leading-none">{value}</p>
-      {subtext && <p className="text-[11px] text-brand-gray mt-1">{subtext}</p>}
+      {subtext && <p className="text-[11px] text-brand-gray mt-1 font-medium">{subtext}</p>}
     </div>
   </motion.div>
 );
@@ -64,11 +67,19 @@ const KpiCard = ({ title, value, subtext, trend, trendValue, id, info }: any) =>
 const ChartContainer = ({ title, children, className, id }: any) => (
   <motion.div 
     id={id}
-    initial={{ opacity: 0, scale: 0.98 }}
-    animate={{ opacity: 1, scale: 1 }}
-    className={cn("bg-white p-4 rounded-sm shadow-none border border-brand-border", className)}
+    initial={{ opacity: 0, y: 15 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ duration: 0.5, delay: 0.1 }}
+    className={cn("bg-white p-4 rounded-sm shadow-sm border border-brand-border", className)}
   >
-    <h3 className="text-sm font-bold text-brand-navy mb-4 border-b border-brand-bg pb-2 uppercase tracking-wide">{title}</h3>
+    <div className="flex items-center justify-between mb-4 border-b border-brand-bg pb-2">
+      <h3 className="text-sm font-bold text-brand-navy uppercase tracking-wide">{title}</h3>
+      <div className="flex gap-1">
+        <div className="w-1.5 h-1.5 rounded-full bg-brand-bg" />
+        <div className="w-1.5 h-1.5 rounded-full bg-brand-bg" />
+        <div className="w-1.5 h-1.5 rounded-full bg-brand-bg" />
+      </div>
+    </div>
     <div className="h-[250px] w-full">
       {children}
     </div>
@@ -77,6 +88,357 @@ const ChartContainer = ({ title, children, className, id }: any) => (
 
 // --- Main Application ---
 
+// --- Dashboard Pane Component (For Comparison Mode) ---
+
+const DashboardPane = ({ 
+  panelId,
+  config, 
+  onConfigChange,
+  globalData, 
+  dashboards, 
+  granularDataStore, 
+  columnsDataStore,
+  activeTab,
+  isComparisonMode,
+  activePanel,
+  setActivePanel
+}: any) => {
+  const currentDashboard = dashboards.find((d: any) => d.id === config.dashboardId) || dashboards[0];
+  const dashboardSourceId = currentDashboard?.sourceId || 'granular';
+  const dashboardData = granularDataStore[dashboardSourceId] || [];
+  const dashboardCols = columnsDataStore[dashboardSourceId] || [];
+
+  const [showAllRows, setShowAllRows] = useState(false);
+
+  const filteredAcumulado = useMemo(() => {
+    return dashboardData.filter((item: any) => {
+      const matchPeriodo = config.periodo === 'All' || item.periodo === config.periodo;
+      const matchProvincia = config.provincia === 'All' || item.provincia === config.provincia;
+      const matchResultado = config.resultado === 'All' || item.resultado === config.resultado;
+      const matchInvestigador = config.investigador === 'All' || item.investigador === config.investigador;
+      const matchCulpable = config.culpable === 'All' || item.culpable === config.culpable;
+      const matchSearch = (String(item.nroSiniestro || '').toLowerCase()).includes(config.search.toLowerCase()) || 
+                          (String(item.analista || '').toLowerCase()).includes(config.search.toLowerCase());
+      return matchPeriodo && matchProvincia && matchResultado && matchInvestigador && matchCulpable && matchSearch;
+    });
+  }, [dashboardData, config]);
+
+  const stats = useMemo(() => {
+    const totalAhorro = filteredAcumulado.reduce((acc, curr) => acc + curr.ahorro, 0);
+    const uniqueSiniestros = filteredAcumulado.filter(i => i.ahorro > 0).length;
+    
+    const totalDays = filteredAcumulado.reduce((acc, curr) => {
+      const start = new Date(curr.fechaSiniestro);
+      const end = new Date(curr.fechaDenuncia);
+      const diff = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+      return acc + (isNaN(diff) ? 0 : Math.max(0, diff));
+    }, 0);
+    const avgDays = filteredAcumulado.length > 0 ? totalDays / filteredAcumulado.length : 0;
+
+    const globalSummary = globalData.filter((g: any) => 
+      (g.tipo.toLowerCase().includes(activeTab === 'carga' ? 'siniestros' : activeTab)) &&
+      (config.periodo === 'All' || g.periodo === config.periodo)
+    );
+    
+    const proyectadoTotal = globalSummary.reduce((acc: number, curr: any) => acc + curr.proyectado, 0);
+    const alcanceTotal = globalSummary.reduce((acc: number, curr: any) => acc + curr.ejecutado, 0);
+    const planTotal = globalSummary.reduce((acc: number, curr: any) => acc + curr.plan, 0);
+    const cumplimientoAvg = planTotal > 0 ? (alcanceTotal / planTotal) * 100 : 0;
+
+    return {
+      totalAhorro,
+      uniqueSiniestros,
+      proyectadoTotal,
+      cumplimientoAvg,
+      avgDays,
+      ahorroVsMeta: (totalAhorro / (proyectadoTotal || 1)) * 100
+    };
+  }, [globalData, filteredAcumulado, activeTab, config.periodo]);
+
+  const timeChartData = useMemo(() => {
+    const periodos = ['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'];
+    const currentType = activeTab === 'carga' ? 'Siniestros' : (activeTab === 'siniestros' ? 'Siniestros' : 'Suscripción');
+    
+    return periodos.map(p => {
+      const g = globalData.find((item: any) => item.periodo === p && item.tipo === currentType);
+      const plan = g?.plan || g?.proyectado || 0;
+      const ejecutado = g?.ejecutado || 0;
+      const cumplimiento = plan > 0 ? (ejecutado / plan) * 100 : 0;
+
+      return {
+        name: p,
+        Proyectado: plan,
+        Alcance: ejecutado,
+        Cumplimiento: cumplimiento
+      };
+    });
+  }, [globalData, activeTab]);
+
+  const outcomePieData = useMemo(() => {
+    const data: any = {};
+    filteredAcumulado.forEach(item => {
+      data[item.resultado] = (data[item.resultado] || 0) + item.ahorro;
+    });
+    return Object.entries(data).map(([name, value]) => ({ name, value }));
+  }, [filteredAcumulado]);
+
+  const topInvestigatorsData = useMemo(() => {
+    const data: any = {};
+    filteredAcumulado.forEach(item => {
+      data[item.investigador] = (data[item.investigador] || 0) + item.ahorro;
+    });
+    return Object.entries(data)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a: any, b: any) => (b.value as number) - (a.value as number))
+      .slice(0, 5);
+  }, [filteredAcumulado]);
+
+  const COLORS = ['#00A1E0', '#FF9D3E', '#10b981', '#ef4444', '#8b5cf6', '#ec4899'];
+  const isActive = activePanel === panelId;
+
+  return (
+    <motion.div 
+      onClick={() => setActivePanel(panelId)}
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className={cn(
+        "flex-1 flex flex-col gap-3 min-w-0 transition-all duration-300",
+        isComparisonMode && !isActive && "opacity-70 saturate-50 scale-[0.98]",
+        isComparisonMode && isActive && "ring-2 ring-brand-blue/30 rounded-sm p-1"
+      )}
+    >
+      {isComparisonMode && (
+        <div className="flex items-center justify-between bg-white border border-brand-border p-2 rounded-sm mb-1 shadow-sm">
+           <div className="flex items-center gap-3">
+              <div className={cn(
+                "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold",
+                panelId === 'A' ? "bg-brand-blue text-white" : "bg-brand-gray text-white"
+              )}>
+                {panelId}
+              </div>
+              <select 
+                 value={config.dashboardId}
+                 onChange={(e) => onConfigChange({ ...config, dashboardId: e.target.value })}
+                 className="text-[10px] font-bold uppercase text-brand-navy border-none focus:ring-0 cursor-pointer bg-transparent"
+              >
+                {dashboards.map((d: any) => <option key={d.id} value={d.id}>{d.title}</option>)}
+              </select>
+           </div>
+           
+           <div className="flex items-center gap-2 overflow-x-auto no-scrollbar max-w-[60%]">
+             <select 
+               value={config.periodo}
+               onChange={(e) => onConfigChange({ ...config, periodo: e.target.value })}
+               className="text-[9px] font-bold uppercase text-brand-gray bg-brand-bg px-2 py-1 rounded-sm border-none focus:ring-1 focus:ring-brand-blue"
+             >
+               <option value="All">Período: Todos</option>
+               {['ENERO', 'FEBRERO', 'MARZO', 'ABRIL', 'MAYO', 'JUNIO', 'JULIO', 'AGOSTO', 'SEPTIEMBRE', 'OCTUBRE', 'NOVIEMBRE', 'DICIEMBRE'].map(m => (
+                 <option key={m} value={m}>{m}</option>
+               ))}
+             </select>
+             <select 
+               value={config.provincia}
+               onChange={(e) => onConfigChange({ ...config, provincia: e.target.value })}
+               className="text-[9px] font-bold uppercase text-brand-gray bg-brand-bg px-2 py-1 rounded-sm border-none focus:ring-1 focus:ring-brand-blue"
+             >
+               <option value="All">Provincia: Todas</option>
+               {PROVINCIAS.map(p => <option key={p} value={p}>{p}</option>)}
+             </select>
+           </div>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        <div id={`stats-grid-${panelId}`} className={cn("grid gap-3", isComparisonMode ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3")}>
+          {currentDashboard?.widgets?.includes('kpi-ahorro') && (
+            <KpiCard 
+              id={`kpi-ahorro-${panelId}`}
+              title="Ahorro Total Alcance"
+              value={formatCurrency(stats.totalAhorro)}
+              subtext="▲ 4.2% vs Proyectado"
+              trend={stats.ahorroVsMeta >= 100 ? 'up' : 'down'}
+              trendValue={`${stats.ahorroVsMeta.toFixed(1)}%`}
+              info="Suma total de ahorros registrados en la grilla de auditoría para el período y filtros seleccionados."
+            />
+          )}
+          {currentDashboard?.widgets?.includes('kpi-cumplimiento') && (
+            <KpiCard 
+              id={`kpi-cumplimiento-${panelId}`}
+              title="Tasa Cumplimiento"
+              value={`${stats.cumplimientoAvg.toFixed(1)}%`}
+              subtext="Meta: 92.00%"
+              info="Relación porcentual entre los ahorros reales logrados (Alcance) y la meta planificada (Plan) en el presupuesto mensual."
+            />
+          )}
+          {currentDashboard?.widgets?.includes('kpi-siniestros') && (
+            <KpiCard 
+              id={`kpi-siniestros-${panelId}`}
+              title="Siniestros con Ahorro"
+              value={stats.uniqueSiniestros.toLocaleString()}
+              subtext={`Total período: ${filteredAcumulado.length}`}
+              info="Cantidad total de siniestros cerrados que generaron un ahorro positivo en la auditoría."
+            />
+          )}
+        </div>
+
+        {currentDashboard?.widgets?.includes('chart-performance') && (
+          <div id={`visuals-top-${panelId}`} className="grid grid-cols-1 gap-3">
+            <ChartContainer id={`chart-performance-${panelId}`} title="Proyectado vs Alcance & Cumplimiento (%)" className="w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={timeChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8E8E8" />
+                  <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} tick={{fill: '#706E6B'}} />
+                  <YAxis yAxisId="left" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `$${(val/1000000).toFixed(0)}M`} tick={{fill: '#706E6B'}} />
+                  <YAxis yAxisId="right" orientation="right" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `${val.toFixed(0)}%`} tick={{fill: '#FF9D3E'}} />
+                  <Tooltip 
+                    contentStyle={{ borderRadius: '2px', border: '1px solid #D8DDE6', boxShadow: 'none' }}
+                    itemStyle={{ fontSize: '10px' }}
+                    formatter={(val: number, name: string) => {
+                      if (name === 'Cumplimiento') return [`${val.toFixed(1)}%`, name];
+                      return [formatCurrency(val), name];
+                    }}
+                  />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
+                  <Bar yAxisId="left" dataKey="Proyectado" fill="#B0ADAB" barSize={isComparisonMode ? 20 : 30} />
+                  <Bar yAxisId="left" dataKey="Alcance" fill="#00A1E0" barSize={isComparisonMode ? 20 : 30} />
+                  <Line yAxisId="right" type="monotone" dataKey="Cumplimiento" stroke="#FF9D3E" strokeWidth={2} dot={{ r: 3, fill: '#FF9D3E' }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          </div>
+        )}
+
+        <div id={`visuals-bottom-${panelId}`} className={cn("grid gap-3", isComparisonMode ? "grid-cols-1" : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3")}>
+          {currentDashboard?.widgets?.includes('chart-outcomes') && (
+            <ChartContainer id={`chart-outcomes-${panelId}`} title="Distribución por Resultado">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart margin={{ top: 0, left: 0, right: 0, bottom: 20 }}>
+                  <Pie
+                    data={outcomePieData}
+                    innerRadius={0}
+                    outerRadius={isComparisonMode ? 50 : 70}
+                    dataKey="value"
+                    labelLine={!isComparisonMode}
+                    label={isComparisonMode ? false : ({ name, percent }) => {
+                      const labelName = name.length > 8 ? `${name.substring(0, 8)}...` : name;
+                      return `${labelName} ${(percent * 100).toFixed(0)}%`;
+                    }}
+                  >
+                    {outcomePieData.map((_entry: any, index: number) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="white" strokeWidth={2} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(val: number) => formatCurrency(val)} />
+                  <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '9px', paddingTop: '10px' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          )}
+
+          {currentDashboard?.widgets?.includes('chart-savings-study') && (
+            <ChartContainer id={`chart-savings-study-${panelId}`} title="Ahorro por Estudio ($)">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topInvestigatorsData} margin={{ top: 20, right: 30, left: 20, bottom: 50 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8E8E8" />
+                  <XAxis 
+                    dataKey="name" 
+                    fontSize={8} 
+                    interval={0} 
+                    angle={-45} 
+                    textAnchor="end" 
+                    tickLine={false} 
+                    axisLine={false} 
+                  />
+                  <YAxis 
+                     fontSize={8} 
+                     tickLine={false} 
+                     axisLine={false} 
+                     tickFormatter={(val) => `$${(val / 1000000).toFixed(1)}M`} 
+                  />
+                  <Tooltip 
+                    formatter={(val: number) => formatCurrency(val)}
+                    contentStyle={{ fontSize: '10px', borderRadius: '2px' }}
+                  />
+                  <Bar dataKey="value" fill="#10b981" radius={[2, 2, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          )}
+
+          {currentDashboard?.widgets?.includes('chart-investigators') && (
+            <ChartContainer id={`chart-investigators-${panelId}`} title="Top Investigadores">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart layout="vertical" data={topInvestigatorsData} margin={{ left: -30, right: 20 }}>
+                  <XAxis type="number" hide />
+                  <YAxis dataKey="name" type="category" width={100} fontSize={9} tickLine={false} axisLine={false} />
+                  <Tooltip formatter={(val: number) => formatCurrency(val)} />
+                  <Bar dataKey="value" fill="#00A1E0" barSize={10} radius={[0, 1, 1, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartContainer>
+          )}
+        </div>
+
+        {!isComparisonMode && (
+          <div id="audit-table-section" className="bg-white rounded-sm border border-brand-border overflow-hidden mb-6">
+            <div className="p-4 border-b border-brand-bg flex flex-col md:flex-row justify-between items-center gap-4">
+              <h3 className="text-xs font-bold text-brand-navy uppercase tracking-widest">Detalle de Siniestros Granular (Auditoría)</h3>
+              <div className="relative w-full md:w-72">
+                <Search className="w-3 h-3 absolute left-3 top-1/2 -translate-y-1/2 text-brand-gray" />
+                <input 
+                  type="text" 
+                  placeholder="Filtrar por nro. o analista..."
+                  value={config.search}
+                  onChange={(e) => onConfigChange({ ...config, search: e.target.value })}
+                  className="w-full bg-brand-bg border border-brand-border rounded-sm py-1.5 pl-9 pr-4 text-[10px] outline-none focus:border-brand-blue transition-all"
+                />
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-[10px]">
+                <thead className="bg-[#F3F2F2]">
+                  <tr>
+                    {currentDashboard?.visibleFields?.map((fieldId: string) => {
+                      const col = dashboardCols.find((c: any) => c.id === fieldId);
+                      return (
+                        <th key={fieldId} className="px-4 py-2 font-bold text-brand-gray uppercase border-b border-brand-border">
+                          {col?.name || fieldId}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#F3F2F2]">
+                  {filteredAcumulado.slice(0, showAllRows ? undefined : 15).map((row: any, idx: number) => (
+                    <tr key={idx} className="hover:bg-brand-bg/50 transition-colors text-brand-navy">
+                      {currentDashboard?.visibleFields?.map((fieldId: string) => {
+                        const col = dashboardCols.find((c: any) => c.id === fieldId);
+                        const value = row[fieldId];
+                        return (
+                          <td key={fieldId} className={cn("px-4 py-2", col?.type === 'currency' && "font-bold text-right")}>
+                            {col?.type === 'currency' ? formatCurrency(value) : String(value || '-')}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="p-3 bg-white border-t border-brand-border text-center">
+              <button 
+                onClick={() => setShowAllRows(!showAllRows)}
+                className="text-[9px] font-bold text-brand-blue hover:underline uppercase transition-all tracking-widest"
+              >
+                {showAllRows ? 'Ver menos' : 'Ver registros completos • Augment por Periodo'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+};
 export default function App() {
   // Navigation States
   const [activeTab, setActiveTab] = useState<'siniestros' | 'suscripcion' | 'carga'>('siniestros');
@@ -318,6 +680,46 @@ export default function App() {
   const [showAllRows, setShowAllRows] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Comparison Integration
+  const [isComparisonMode, setIsComparisonMode] = useState(false);
+  
+  interface PanelFilterState {
+    dashboardId: string;
+    periodo: string;
+    provincia: string;
+    resultado: string;
+    investigador: string;
+    culpable: string;
+    search: string;
+  }
+
+  const initialPanelState: PanelFilterState = {
+    dashboardId: dashboards[0]?.id || 'default',
+    periodo: 'All',
+    provincia: 'All',
+    resultado: 'All',
+    investigador: 'All',
+    culpable: 'All',
+    search: ''
+  };
+
+  const [panelA, setPanelA] = useState<PanelFilterState>(initialPanelState);
+  const [panelB, setPanelB] = useState<PanelFilterState>({ ...initialPanelState, periodo: 'FEBRERO' }); // Default second panel to another month
+  const [activePanel, setActivePanel] = useState<'A' | 'B'>('A');
+
+  // Synchronize global filters with Panel A when not in comparison mode
+  useEffect(() => {
+    if (!isComparisonMode) {
+      setFilterPeriodo(panelA.periodo);
+      setFilterProvincia(panelA.provincia);
+      setFilterResultado(panelA.resultado);
+      setFilterInvestigador(panelA.investigador);
+      setFilterCulpable(panelA.culpable);
+      setSearchTerm(panelA.search);
+      setActiveDashboardId(panelA.dashboardId);
+    }
+  }, [panelA, isComparisonMode]);
+
   const COLORS = ['#00A1E0', '#FF9D3E', '#10b981', '#ef4444', '#8b5cf6', '#ec4899'];
 
   // Dynamic filter options based on source data
@@ -517,15 +919,59 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-brand-bg flex flex-col font-sans text-brand-navy">
-      <header className="bg-white border-b border-brand-border sticky top-0 z-30 px-6 py-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="bg-brand-blue w-8 h-8 rounded-sm flex items-center justify-center font-bold text-white shadow-sm">
-            A
+      <header className="bg-white border-b border-brand-border sticky top-0 z-30 px-6 py-2.5 flex items-center justify-between shadow-sm">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3">
+            <div className="bg-brand-blue w-8 h-8 rounded-sm flex items-center justify-center font-bold text-white shadow-sm ring-2 ring-brand-blue/20">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-base font-bold text-brand-navy leading-tight">Garantía Auditing</h1>
+              <p className="text-[10px] text-brand-gray font-medium uppercase tracking-widest leading-tight mt-0.5">Ejercicio 2026 • CRM Analytics</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-base font-bold text-brand-navy leading-tight">Gestión de Siniestros</h1>
-            <p className="text-[10px] text-brand-gray font-medium uppercase tracking-widest leading-tight mt-0.5">Ejercicio 2026 • CRM Analytics Architect View</p>
+
+          <div className="h-6 w-px bg-brand-border" />
+
+          {/* Comparison Mode Toggle */}
+          <div className="flex items-center bg-brand-bg p-1 rounded-sm border border-brand-border h-9">
+            <button 
+              onClick={() => setIsComparisonMode(false)}
+              className={cn(
+                "px-3 py-1.5 rounded-sm text-[10px] font-bold transition-all uppercase flex items-center gap-2",
+                !isComparisonMode ? "bg-white shadow-sm text-brand-blue" : "text-brand-gray hover:text-brand-navy"
+              )}
+              title="Vista Única"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Individual</span>
+            </button>
+            <button 
+              onClick={() => setIsComparisonMode(true)}
+              className={cn(
+                "px-3 py-1.5 rounded-sm text-[10px] font-bold transition-all uppercase flex items-center gap-2",
+                isComparisonMode ? "bg-white shadow-sm text-brand-blue" : "text-brand-gray hover:text-brand-navy"
+              )}
+              title="Vista Comparativa"
+            >
+              <ColumnsIcon className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Comparativa</span>
+            </button>
           </div>
+
+          {isComparisonMode && (
+             <button 
+               onClick={() => {
+                 if (activePanel === 'A') setPanelB({ ...panelA });
+                 else setPanelA({ ...panelB });
+                 alert("Paneles sincronizados exitosamente.");
+               }}
+               className="flex items-center gap-2 px-3 py-2 border border-brand-blue/30 text-brand-blue rounded-sm text-[10px] font-bold uppercase hover:bg-blue-50 transition-all font-mono"
+             >
+               <RefreshCw className="w-3 h-3" />
+               Sincronizar
+             </button>
+          )}
         </div>
 
         <div className="flex items-center gap-4">
@@ -927,30 +1373,36 @@ export default function App() {
 
               <div className="flex items-center gap-2 text-brand-navy font-bold text-[11px] uppercase tracking-widest pb-2 border-b border-brand-bg">
                 <Filter className="w-3.5 h-3.5" />
-                Configuración
+                Configuración {isComparisonMode && `(Panel ${activePanel})`}
               </div>
               <div className="space-y-4">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-brand-blue uppercase tracking-widest flex items-center gap-1.5 mb-1 bg-blue-50 p-1.5 rounded-sm border border-blue-100">
                     <Database className="w-3 h-3" />
-                    Origen del Tablero
+                    Tablero Activo
                   </label>
                   <select 
-                    value={dashboardSourceId} 
-                    onChange={(e) => updateDashboardSource(activeDashboardId, e.target.value)}
-                    className="w-full bg-white border border-brand-blue/30 rounded-sm p-1.5 text-xs text-brand-navy outline-none focus:border-brand-blue transition-all"
+                    value={activePanel === 'A' ? panelA.dashboardId : panelB.dashboardId} 
+                    onChange={(e) => {
+                      const upd = { dashboardId: e.target.value };
+                      if (activePanel === 'A') setPanelA(prev => ({ ...prev, ...upd }));
+                      else setPanelB(prev => ({ ...prev, ...upd }));
+                    }}
+                    className="w-full bg-white border border-brand-border rounded-sm p-1.5 text-xs text-brand-navy outline-none focus:border-brand-blue transition-all"
                   >
-                    {dataViews.filter(v => v.type === 'granular').map(v => (
-                      <option key={v.id} value={v.id}>{v.title}</option>
-                    ))}
+                    {dashboards.map(d => <option key={d.id} value={d.id}>{d.title}</option>)}
                   </select>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-brand-gray uppercase tracking-widest">Periodo</label>
+                  <label className="text-[10px] font-bold text-brand-gray uppercase tracking-widest">Período</label>
                   <select 
-                    value={filterPeriodo} 
-                    onChange={(e) => setFilterPeriodo(e.target.value)}
+                    value={activePanel === 'A' ? panelA.periodo : panelB.periodo} 
+                    onChange={(e) => {
+                      const upd = { periodo: e.target.value };
+                      if (activePanel === 'A') setPanelA(prev => ({ ...prev, ...upd }));
+                      else setPanelB(prev => ({ ...prev, ...upd }));
+                    }}
                     className="w-full bg-white border border-brand-border rounded-sm p-1.5 text-xs text-brand-navy outline-none focus:border-brand-blue transition-all"
                   >
                     <option value="All">Todos (2026)</option>
@@ -972,8 +1424,12 @@ export default function App() {
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-brand-gray uppercase tracking-widest">Provincia</label>
                   <select 
-                    value={filterProvincia} 
-                    onChange={(e) => setFilterProvincia(e.target.value)}
+                    value={activePanel === 'A' ? panelA.provincia : panelB.provincia} 
+                    onChange={(e) => {
+                      const upd = { provincia: e.target.value };
+                      if (activePanel === 'A') setPanelA(prev => ({ ...prev, ...upd }));
+                      else setPanelB(prev => ({ ...prev, ...upd }));
+                    }}
                     className="w-full bg-white border border-brand-border rounded-sm p-1.5 text-xs text-brand-navy outline-none focus:border-brand-blue transition-all"
                   >
                     <option value="All">Todas</option>
@@ -984,8 +1440,12 @@ export default function App() {
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-brand-gray uppercase tracking-widest">Resultado</label>
                   <select 
-                    value={filterResultado} 
-                    onChange={(e) => setFilterResultado(e.target.value)}
+                    value={activePanel === 'A' ? panelA.resultado : panelB.resultado} 
+                    onChange={(e) => {
+                      const upd = { resultado: e.target.value };
+                      if (activePanel === 'A') setPanelA(prev => ({ ...prev, ...upd }));
+                      else setPanelB(prev => ({ ...prev, ...upd }));
+                    }}
                     className="w-full bg-white border border-brand-border rounded-sm p-1.5 text-xs text-brand-navy outline-none focus:border-brand-blue transition-all"
                   >
                     <option value="All">Acuerdo/Desist.</option>
@@ -997,8 +1457,12 @@ export default function App() {
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-brand-gray uppercase tracking-widest">Investigador</label>
                   <select 
-                    value={filterInvestigador} 
-                    onChange={(e) => setFilterInvestigador(e.target.value)}
+                    value={activePanel === 'A' ? panelA.investigador : panelB.investigador} 
+                    onChange={(e) => {
+                      const upd = { investigador: e.target.value };
+                      if (activePanel === 'A') setPanelA(prev => ({ ...prev, ...upd }));
+                      else setPanelB(prev => ({ ...prev, ...upd }));
+                    }}
                     className="w-full bg-white border border-brand-border rounded-sm p-1.5 text-xs text-brand-navy outline-none focus:border-brand-blue transition-all"
                   >
                     <option value="All">Todos</option>
@@ -1019,9 +1483,18 @@ export default function App() {
         </aside>
 
         <main className="flex-1 overflow-y-auto pr-1">
-          <div className="mx-auto space-y-3">
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3 }}
+            className="mx-auto space-y-3"
+          >
             {activeTab === 'carga' ? (
-               <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+               <motion.div 
+                 initial={{ opacity: 0, y: 10 }}
+                 animate={{ opacity: 1, y: 0 }}
+                 transition={{ duration: 0.4 }}
+               >
                  {currentView?.type === 'mensual' ? (
                    <div className="bg-white border border-brand-border rounded-sm overflow-hidden shadow-sm">
                       <div className="bg-brand-navy p-3 border-b border-brand-border flex justify-between items-center">
@@ -1130,197 +1603,40 @@ export default function App() {
                       />
                     </div>
                   )}
-                </div>
+                </motion.div>
               ) : (
-                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-3">
-                  <div id="stats-grid" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {currentDashboard?.widgets?.includes('kpi-ahorro') && (
-                      <KpiCard 
-                        id="kpi-ahorro"
-                        title="Ahorro Total Alcance"
-                        value={formatCurrency(stats.totalAhorro)}
-                        subtext="▲ 4.2% vs Proyectado"
-                        trend={stats.ahorroVsMeta >= 100 ? 'up' : 'down'}
-                        trendValue={`${stats.ahorroVsMeta.toFixed(1)}%`}
-                        info="Suma total de ahorros registrados en la grilla de auditoría para el período y filtros seleccionados."
-                      />
-                    )}
-                    {currentDashboard?.widgets?.includes('kpi-cumplimiento') && (
-                      <KpiCard 
-                        id="kpi-cumplimiento"
-                        title="Tasa Cumplimiento"
-                        value={`${stats.cumplimientoAvg.toFixed(1)}%`}
-                        subtext="Meta: 92.00%"
-                        info="Relación porcentual entre los ahorros reales logrados (Alcance) y la meta planificada (Plan) en el presupuesto mensual."
-                      />
-                    )}
-                    {currentDashboard?.widgets?.includes('kpi-siniestros') && (
-                      <KpiCard 
-                        id="kpi-siniestros"
-                        title="Siniestros con Ahorro"
-                        value={stats.uniqueSiniestros.toLocaleString()}
-                        subtext={`Total período: ${filteredAcumulado.length}`}
-                        info="Cantidad total de siniestros cerrados que generaron un ahorro positivo en la auditoría."
-                      />
-                    )}
-                  </div>
-
-                  {currentDashboard?.widgets?.includes('chart-performance') && (
-                    <div id="visuals-top" className="grid grid-cols-1 gap-3">
-                      <ChartContainer id="chart-performance" title="Proyectado vs Alcance & Cumplimiento (%)" className="w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <ComposedChart data={timeChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8E8E8" />
-                            <XAxis dataKey="name" fontSize={10} tickLine={false} axisLine={false} tick={{fill: '#706E6B'}} />
-                            <YAxis yAxisId="left" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `$${(val/1000000).toFixed(0)}M`} tick={{fill: '#706E6B'}} />
-                            <YAxis yAxisId="right" orientation="right" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(val) => `${val.toFixed(0)}%`} tick={{fill: '#FF9D3E'}} />
-                            <Tooltip 
-                              contentStyle={{ borderRadius: '2px', border: '1px solid #D8DDE6', boxShadow: 'none' }}
-                              itemStyle={{ fontSize: '10px' }}
-                              formatter={(val: number, name: string) => {
-                                if (name === 'Cumplimiento') return [`${val.toFixed(1)}%`, name];
-                                return [formatCurrency(val), name];
-                              }}
-                            />
-                            <Legend iconType="circle" wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
-                            <Bar yAxisId="left" dataKey="Proyectado" fill="#B0ADAB" barSize={30} />
-                            <Bar yAxisId="left" dataKey="Alcance" fill="#00A1E0" barSize={30} />
-                            <Line yAxisId="right" type="monotone" dataKey="Cumplimiento" stroke="#FF9D3E" strokeWidth={2} dot={{ r: 3, fill: '#FF9D3E' }} />
-                          </ComposedChart>
-                        </ResponsiveContainer>
-                      </ChartContainer>
-                    </div>
-                  )}
-
-                  <div id="visuals-bottom" className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {currentDashboard?.widgets?.includes('chart-outcomes') && (
-                      <ChartContainer id="chart-outcomes" title="Distribución por Resultado">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart margin={{ top: 0, left: 0, right: 0, bottom: 20 }}>
-                            <Pie
-                              data={outcomePieData}
-                              innerRadius={0}
-                              outerRadius={70}
-                              dataKey="value"
-                              labelLine={true}
-                              label={({ name, percent }) => {
-                                const labelName = name.length > 8 ? `${name.substring(0, 8)}...` : name;
-                                return `${labelName} ${(percent * 100).toFixed(0)}%`;
-                              }}
-                            >
-                              {outcomePieData.map((_entry, index) => (
-                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} stroke="white" strokeWidth={2} />
-                              ))}
-                            </Pie>
-                            <Tooltip formatter={(val: number) => formatCurrency(val)} />
-                            <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: '9px', paddingTop: '10px' }} />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      </ChartContainer>
-                    )}
-
-                    {currentDashboard?.widgets?.includes('chart-savings-study') && (
-                      <ChartContainer id="chart-savings-study" title="Ahorro por Estudio ($)">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={topInvestigatorsData} margin={{ top: 20, right: 30, left: 20, bottom: 50 }}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8E8E8" />
-                            <XAxis 
-                              dataKey="name" 
-                              fontSize={8} 
-                              interval={0} 
-                              angle={-45} 
-                              textAnchor="end" 
-                              tickLine={false} 
-                              axisLine={false} 
-                            />
-                            <YAxis 
-                               fontSize={8} 
-                               tickLine={false} 
-                               axisLine={false} 
-                               tickFormatter={(val) => `$${(val / 1000000).toFixed(1)}M`} 
-                            />
-                            <Tooltip 
-                              formatter={(val: number) => formatCurrency(val)}
-                              contentStyle={{ fontSize: '10px', borderRadius: '2px' }}
-                            />
-                            <Bar dataKey="value" fill="#10b981" radius={[2, 2, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </ChartContainer>
-                    )}
-
-                    {currentDashboard?.widgets?.includes('chart-investigators') && (
-                      <ChartContainer id="chart-investigators" title="Top Investigadores (Ranking)">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart layout="vertical" data={topInvestigatorsData} margin={{ left: -30, right: 20 }}>
-                            <XAxis type="number" hide />
-                            <YAxis dataKey="name" type="category" width={100} fontSize={9} tickLine={false} axisLine={false} />
-                            <Tooltip formatter={(val: number) => formatCurrency(val)} />
-                            <Bar dataKey="value" fill="#00A1E0" barSize={10} radius={[0, 1, 1, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </ChartContainer>
-                    )}
-                  </div>
-
-                  <div id="audit-table-section" className="bg-white rounded-sm border border-brand-border overflow-hidden mb-6">
-              <div className="p-4 border-b border-brand-bg flex flex-col md:flex-row justify-between items-center gap-4">
-                <h3 className="text-xs font-bold text-brand-navy uppercase tracking-widest">Detalle de Siniestros Granular (Auditoría)</h3>
-                <div className="relative w-full md:w-72">
-                  <Search className="w-3 h-3 absolute left-3 top-1/2 -translate-y-1/2 text-brand-gray" />
-                  <input 
-                    type="text" 
-                    id="search-input"
-                    placeholder="Filtrar por nro. o analista..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full bg-brand-bg border border-brand-border rounded-sm py-1.5 pl-9 pr-4 text-[10px] outline-none focus:border-brand-blue transition-all"
+                <div className={cn("flex flex-col lg:flex-row gap-4", isComparisonMode && "items-start overflow-x-auto pb-4")}>
+                  <DashboardPane 
+                    panelId="A"
+                    config={panelA}
+                    onConfigChange={setPanelA}
+                    globalData={globalData}
+                    dashboards={dashboards}
+                    granularDataStore={granularDataStore}
+                    columnsDataStore={columnsDataStore}
+                    activeTab={activeTab}
+                    isComparisonMode={isComparisonMode}
+                    activePanel={activePanel}
+                    setActivePanel={setActivePanel}
                   />
+                  {isComparisonMode && (
+                    <DashboardPane 
+                      panelId="B"
+                      config={panelB}
+                      onConfigChange={setPanelB}
+                      globalData={globalData}
+                      dashboards={dashboards}
+                      granularDataStore={granularDataStore}
+                      columnsDataStore={columnsDataStore}
+                      activeTab={activeTab}
+                      isComparisonMode={isComparisonMode}
+                      activePanel={activePanel}
+                      setActivePanel={setActivePanel}
+                    />
+                  )}
                 </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-[10px]">
-                  <thead className="bg-[#F3F2F2]">
-                    <tr>
-                      {currentDashboard?.visibleFields?.map(fieldId => {
-                        const col = dashboardCols.find((c: any) => c.id === fieldId);
-                        return (
-                          <th key={fieldId} className="px-4 py-2 font-bold text-brand-gray uppercase border-b border-brand-border">
-                            {col?.name || fieldId}
-                          </th>
-                        );
-                      })}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#F3F2F2]">
-                    {filteredAcumulado.slice(0, showAllRows ? undefined : 15).map((row, idx) => (
-                      <tr key={idx} className="hover:bg-brand-bg/50 transition-colors text-brand-navy">
-                        {currentDashboard?.visibleFields?.map(fieldId => {
-                          const col = dashboardCols.find((c: any) => c.id === fieldId);
-                          const value = row[fieldId];
-                          return (
-                            <td key={fieldId} className={cn("px-4 py-2", col?.type === 'currency' && "font-bold text-right")}>
-                              {col?.type === 'currency' ? formatCurrency(value) : String(value || '-')}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="p-3 bg-white border-t border-brand-border text-center">
-                <button 
-                  onClick={() => setShowAllRows(!showAllRows)}
-                  className="text-[9px] font-bold text-brand-blue hover:underline uppercase transition-all tracking-widest"
-                >
-                  {showAllRows ? 'Ver menos' : 'Ver registros completos • Augment por Periodo'}
-                </button>
-              </div>
-            </div>
-          </div>
         )}
-        </div>
+        </motion.div>
       </main>
     </div>
   </div>
